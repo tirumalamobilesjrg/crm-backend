@@ -45,7 +45,7 @@ and one of two unique payment indexes).
 write permissions 66, IMEI integrity 22, purchasing 30, sales 51, stock adjustments 17, audit/immutability 21,
 public catalogue 49, discounts 47, quantity inventory 38, identifier corrections 42, single payment 20,
 two-role model 65, concurrency 15.
-`tests/upgrade/role_migration.sh`: **28 checks, 0 failed**. `scripts/backup-drill.sh`: passed.
+`tests/upgrade/role_migration.sh`: **29 checks, 0 failed**. `scripts/backup-drill.sh`: passed.
 The GitHub Actions workflow has **not** run (no push access yet), so the PostgreSQL 17 matrix leg, `shellcheck`
 and `supabase-local` are unverified.
 
