@@ -30,4 +30,9 @@ while IFS=$'\t' read -r tbl expected; do
   got="$(psql "$RESTORE_DATABASE_URL" -X -At -c "select count(*) from $tbl")"
   if [[ "$got" != "$expected" ]]; then echo "MISMATCH $tbl: backup=$expected restored=$got"; fail=1; fi
 done < "$COUNTS"
-[[ $fail == 0 ]] && echo "restore check passed: all table row counts match the manifest" || { echo "restore check FAILED"; exit 1; }
+if [[ $fail == 0 ]]; then
+  echo "restore check passed: all table row counts match the manifest"
+else
+  echo "restore check FAILED"
+  exit 1
+fi

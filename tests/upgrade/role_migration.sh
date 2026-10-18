@@ -11,6 +11,15 @@ bad()  { FAIL=$((FAIL + 1)); echo "  FAIL - $1${2:+ ($2)}"; }
 check() { # name expected actual
   if [[ "$2" == "$3" ]]; then ok "$1"; else bad "$1" "expected '$2', got '$3'"; fi
 }
+contains() { # name pattern text  (fixed-string match)
+  if grep -qF -- "$2" <<<"$3"; then ok "$1"; else bad "$1" "$3"; fi
+}
+succeeded() { # name exit-code
+  if [[ "$2" -eq 0 ]]; then ok "$1"; else bad "$1" "exit code $2"; fi
+}
+failed() { # name exit-code
+  if [[ "$2" -ne 0 ]]; then ok "$1"; else bad "$1" "unexpectedly exited 0"; fi
+}
 q() { psql -X -q -At -v ON_ERROR_STOP=1 -d "$DB" "$@"; }
 
 new_db() { # name -> database holding migrations 0001-0018
@@ -18,7 +27,8 @@ new_db() { # name -> database holding migrations 0001-0018
   psql -X -q -d postgres -c "drop database if exists $DB with (force)" -c "create database $DB" >/dev/null
   q -f "$ROOT/tests/db/support/supabase_shim.sql" >/dev/null 2>&1
   for f in "$ROOT"/supabase/migrations/*.sql; do
-    [[ "$(basename "$f")" > "20261018000018" ]] && continue
+    version="$(basename "$f")"; version="${version%%_*}"
+    (( 10#$version > 20261018000018 )) && continue
     q -f "$f" >/dev/null || { bad "legacy schema builds ($(basename "$f"))"; return 1; }
   done
 }
@@ -36,11 +46,11 @@ new_db s1 && {
   q -c "insert into public.staff_profiles (user_id, full_name, role, is_active) values
         ('$U_OWNER','O','owner',true), ('$U_MGR','M','manager',true), ('$U_SALES','S','sales_executive',true), ('$U_ACCT','A','accountant',false)"
   OUT="$(migrate)"; RC=$?
-  [[ $RC -ne 0 ]] && ok "migration exits non-zero" || bad "migration exits non-zero"
-  grep -q "Unsupported staff roles" <<<"$OUT" && ok "message says unsupported roles" || bad "message says unsupported roles" "$OUT"
-  grep -q "$U_SALES (sales_executive, active)" <<<"$OUT" && ok "lists the sales_executive user with status" || bad "lists the sales_executive user" "$OUT"
-  grep -q "$U_ACCT (accountant, inactive)" <<<"$OUT" && ok "lists the inactive accountant too (inactive accounts are not skipped)" || bad "lists the inactive accountant"
-  grep -q "docs/ROLE_MIGRATION.md" <<<"$OUT" && ok "points to the remediation document" || bad "points to the remediation document"
+  failed "migration exits non-zero" "$RC"
+  contains "message says unsupported roles" "Unsupported staff roles" "$OUT"
+  contains "lists the sales_executive user with status" "$U_SALES (sales_executive, active)" "$OUT"
+  contains "lists the inactive accountant too (inactive accounts are not skipped)" "$U_ACCT (accountant, inactive)" "$OUT"
+  contains "points to the remediation document" "docs/ROLE_MIGRATION.md" "$OUT"
   check "role type is still the 5-value legacy enum" 5 "$(q -c "select cardinality(enum_range(null::public.staff_role))")"
   check "nobody was promoted: roles unchanged" "accountant,manager,owner,sales_executive" "$(q -c "select string_agg(role::text, ',' order by role::text) from public.staff_profiles")"
   check "discount policy rows untouched (5)" 5 "$(q -c "select count(*) from public.discount_policies")"
@@ -52,7 +62,8 @@ new_db s2 && {
   user $U_MGR M; user $U_OWNER O
   q -c "insert into public.staff_profiles (user_id, full_name, role, is_active) values ('$U_MGR','M','manager',true), ('$U_OWNER','O','owner',false)"
   OUT="$(migrate)"; RC=$?
-  [[ $RC -ne 0 ]] && grep -q "no active owner" <<<"$OUT" && ok "refuses when no active owner exists" || bad "refuses when no active owner exists" "$OUT"
+  failed "refuses when no active owner exists (exit code)" "$RC"
+  contains "refuses when no active owner exists (message)" "no active owner" "$OUT"
   check "state unchanged" 5 "$(q -c "select cardinality(enum_range(null::public.staff_role))")"
 }
 
@@ -66,7 +77,7 @@ new_db s3 && {
   # documented remediation: decide per user. Here: deactivate and move to the only non-admin role. Nobody becomes Admin.
   q -c "update public.staff_profiles set role = 'manager', is_active = false where role::text in ('sales_executive','inventory_executive','accountant')"
   OUT="$(migrate)"; RC=$?
-  [[ $RC -eq 0 ]] && ok "migration succeeds after remediation" || bad "migration succeeds after remediation" "$OUT"
+  succeeded "migration succeeds after remediation" "$RC"
   check "role type is now exactly admin,manager" "{admin,manager}" "$(q -c "select enum_range(null::public.staff_role)")"
   check "owner became admin; others stayed manager" "admin:1,manager:4" "$(q -c "select string_agg(role::text || ':' || c, ',' order by role::text) from (select role, count(*) c from public.staff_profiles group by 1) x")"
   check "the remediated users are still inactive" 3 "$(q -c "select count(*) from public.staff_profiles where not is_active")"
@@ -78,7 +89,7 @@ new_db s3 && {
   check "removal of obsolete policy rows is itself audited" 3 "$(q -c "select count(*) from public.audit_logs where table_name = 'discount_policies' and action = 'delete'")"
   check "legacy enum is gone" "" "$(q -c "select to_regtype('public.staff_role_legacy')")"
   OUT2="$(q -c "insert into public.staff_profiles (user_id, full_name, role) values ('$U_INV','x','sales_executive')" 2>&1 || true)"
-  grep -q "invalid input value for enum" <<<"$OUT2" && ok "removed role names are rejected after the migration" || bad "removed role names are rejected" "$OUT2"
+  contains "removed role names are rejected after the migration" "invalid input value for enum" "$OUT2"
   check "RLS policies were recreated (49)" 49 "$(q -c "select count(*) from pg_policies where schemaname = 'public'")"
 }
 
@@ -95,14 +106,14 @@ update public.discount_policies set max_percent = 15 where role = 'manager';
 commit;
 SQL
   OUT="$(migrate)"; RC=$?
-  [[ $RC -eq 0 ]] && ok "migration succeeds" || bad "migration succeeds" "$OUT"
+  succeeded "migration succeeds" "$RC"
   check "configured Manager limit kept at 15 %; approval right removed" "true|15.00|false" "$(q -c "select can_discount||'|'||max_percent||'|'||can_approve from public.discount_policies where role = 'manager'")"
 }
 
 echo "S5: empty staff table (fresh project) -> succeeds"
 new_db s5 && {
   OUT="$(migrate)"; RC=$?
-  [[ $RC -eq 0 ]] && ok "migration succeeds with no staff yet" || bad "migration succeeds with no staff yet" "$OUT"
+  succeeded "migration succeeds with no staff yet" "$RC"
   check "enum" "{admin,manager}" "$(q -c "select enum_range(null::public.staff_role)")"
 }
 

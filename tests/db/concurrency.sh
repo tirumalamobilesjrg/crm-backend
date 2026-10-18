@@ -107,7 +107,6 @@ commit;
 SQL
 }
 OWNER='a0000000-0000-0000-0000-000000000001'
-INV='a0000000-0000-0000-0000-000000000002'
 VC=$("${PSQL[@]}" -c "select t.fx('v_case')")
 
 # E: two sellers each ask for most of an accessory SKU's stock at once; only one may get it.
