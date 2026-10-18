@@ -8,7 +8,7 @@ No application server: clients (the `crm-frontend` CRM, later the `public-websit
 `scripts/test-db.sh` (run all DB tests) · `scripts/backup*.sh`, `restore-check.sh` · `docs/` (ARCHITECTURE, SECURITY, API_CONTRACTS, SCHEMA_DECISIONS, ROLE_MIGRATION, TESTING, OPERATIONS).
 
 ## Non-negotiable rules
-- **Never edit a migration that has been applied** (the hosted project has 0001–0019; 0020, 0021 and 0022 are not applied there yet). Add a new forward migration instead.
+- **Never edit a migration that has been applied** (the hosted project has 0001–0022, applied 2026-10-19 after a schema+data dump). Add a new forward migration instead.
 - Every new table: enable RLS, grant explicitly (default is deny; `anon`/`authenticated` get nothing by default), add policies, and add it to the
   RLS read matrix (`tests/db/02_rls_read_matrix.test.sql`). Test 01 fails if RLS is missing or anon gains access.
 - Stock, sales, invoices, payments, approvals, audit logs change ONLY through the SECURITY DEFINER functions (`finalize_sale`, `receive_purchase`,
