@@ -99,7 +99,7 @@ that is intentional.
 
 - Authentication hardening (MFA for Admin and Manager accounts, password policy, email provider) is a Supabase dashboard
   configuration, not code here. Not verified.
-- Image storage bucket policies (Supabase Storage) are not defined yet; `product_images.storage_path` is metadata only.
+- Product images (migration 0021): the `product-images` bucket is public for reading by design (they are shown on the public website). Writing is limited to active Admin/Manager staff and to `products/<folder>/<file>` names; anon and non-staff logins can neither list nor write. Image files are not covered by the database backup scripts.
 - Rate limiting of the anon key is Supabase's platform behaviour; the catalogue views are cheap but unthrottled here.
 - A user with the database password or the service-role key can still do anything; keep both out of repos and browsers.
 - `audit_logs` can contain customer PII (before/after images of `customers`); only an Admin can read it.

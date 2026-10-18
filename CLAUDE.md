@@ -4,11 +4,11 @@ Database foundation for Tirumala Mobiles on Supabase/PostgreSQL. **This repo own
 No application server: clients (the `crm-frontend` CRM, later the `public-website`) call Supabase's REST API and database functions.
 
 ## Layout
-`supabase/migrations/` (applied in filename order, 0001..0020) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
+`supabase/migrations/` (applied in filename order, 0001..0021) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
 `scripts/test-db.sh` (run all DB tests) · `scripts/backup*.sh`, `restore-check.sh` · `docs/` (ARCHITECTURE, SECURITY, API_CONTRACTS, SCHEMA_DECISIONS, ROLE_MIGRATION, TESTING, OPERATIONS).
 
 ## Non-negotiable rules
-- **Never edit a migration that has been applied** (the hosted project has 0001–0019; 0020 is not applied there yet). Add a new forward migration instead.
+- **Never edit a migration that has been applied** (the hosted project has 0001–0019; 0020 and 0021 are not applied there yet). Add a new forward migration instead.
 - Every new table: enable RLS, grant explicitly (default is deny; `anon`/`authenticated` get nothing by default), add policies, and add it to the
   RLS read matrix (`tests/db/02_rls_read_matrix.test.sql`). Test 01 fails if RLS is missing or anon gains access.
 - Stock, sales, invoices, payments, approvals, audit logs change ONLY through the SECURITY DEFINER functions (`finalize_sale`, `receive_purchase`,
@@ -19,15 +19,15 @@ No application server: clients (the `crm-frontend` CRM, later the `public-websit
 ## Decided business rules
 Two roles only (Admin, Manager; removed roles cannot be assigned — migration 0019, remediation in docs/ROLE_MIGRATION.md). Serialized phones + quantity accessories,
 append-only stock ledger, gapless invoice numbers, **no GST/tax**, **exactly one manual payment per sale equal to the total**, discounts via Admin-managed
-`discount_policies` (Manager has no allowance until configured) and single-use Admin approvals, audited IMEI corrections with history, explicit approved `public_price`, and a sale line's unit price may not exceed the variant's MRP (migration 0020, `TM003`).
+`discount_policies` (Manager has no allowance until configured) and single-use Admin approvals, audited IMEI corrections with history, explicit approved `public_price`, a sale line's unit price may not exceed the variant's MRP (migration 0020, `TM003`), and product photos live in the public `product-images` Storage bucket writable only by active staff (migration 0021).
 
 ## Commands
 `scripts/test-db.sh` (needs PostgreSQL 16/17 + `psql`; PG* env vars; use Git Bash/WSL on Windows) · `tests/upgrade/role_migration.sh` · `shellcheck scripts/*.sh tests/db/concurrency.sh tests/upgrade/role_migration.sh`.
-Last recorded: 731 assertions pass, role migration 29 checks pass, CI green on GitHub (PostgreSQL 16 and 17, backup drill, shellcheck).
+Last recorded: 764 assertions pass, role migration 29 checks pass, CI green on GitHub (PostgreSQL 16 and 17, backup drill, shellcheck).
 Apply to hosted project (manual, owner only): `supabase link`, `supabase db push --dry-run`, then `supabase db push`. Take a backup first.
 
 ## Known gaps / ideas
-No returns/voids/refunds; no partial purchase receipts; no weighted-average accessory cost; Storage policies for images not defined; PostgREST/HTTP behaviour was only
+No returns/voids/refunds; no partial purchase receipts; no weighted-average accessory cost; image files are not in the database backups; PostgREST/HTTP behaviour was only
 verified manually; backups are not scheduled or off-platform.
 
 ## Working agreements

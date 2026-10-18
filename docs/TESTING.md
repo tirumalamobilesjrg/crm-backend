@@ -26,6 +26,7 @@
 | `13_single_payment` | single-payment shape, reconciliation, no gateway/credit semantics, DB uniqueness |
 | `14_two_role_model` | removed roles cannot be assigned or used; every Admin-only power denied to a Manager; Admin and Manager positive cases; audit of sensitive actions by both roles |
 | `15_sale_price_mrp` | `finalize_sale` rejects a unit price above MRP (phones, accessories, per-unit not line total, discount cannot offset it, Admin too), whole mixed cart rejected with no trace, MRP exactly and below accepted, same key reusable after a rejection, existing rejections and grants unchanged |
+| `16_product_images_storage` | the public `product-images` bucket (limits, MIME types), the object-name layout rules, anon / no-profile / deactivated users refused, Manager and Admin upload / replace / delete, other buckets untouched, bucket settings not changeable from the API, `product_images.storage_path` layout constraint |
 | `concurrency.sh` | A two sales of one device; B same idempotency key at once; C invoice-number serialisation; D aborted transaction; E two accessory sales racing for stock; F one Admin approval used twice at once; G two corrections racing for one IMEI |
 | `tests/upgrade/role_migration.sh` (separate command) | migration 0019 against legacy five-role data: refuses unsupported roles (active and inactive) and a missing owner without changing anything; succeeds after remediation; owner -> admin; nobody promoted; audit history and configured Manager limits preserved |
 

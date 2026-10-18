@@ -15,7 +15,7 @@ The other two repositories only consume it.
 
 Tasks 1, 1B and the two-role simplification (foundation + finalized shop rules + Admin/Manager). There is no application server: clients talk to Supabase's Data
 API (PostgREST) and call database functions for the operations that must be transactional. Not yet built: the CRM
-UI, the website, returns/voids/refunds, image storage policies. Out of scope by decision: GST/tax, online
+UI, the website, returns/voids/refunds. Out of scope by decision: GST/tax, online
 payments, split payments, credit/EMI.
 See [docs/SCHEMA_DECISIONS.md](docs/SCHEMA_DECISIONS.md) for decisions and open questions,
 [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) for the client contract and

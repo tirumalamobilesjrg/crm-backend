@@ -89,8 +89,8 @@ jobs:
           version: latest
       - name: Install PostgreSQL client
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
-      - name: Start local Supabase (database + auth only)
-        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,mailpit,realtime,storage-api,supavisor,postgres-meta
+      - name: Start local Supabase (database, auth, REST and Storage)
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,mailpit,realtime,supavisor,postgres-meta
       - name: Apply migrations from scratch
         run: supabase db reset
       - name: Run the database tests

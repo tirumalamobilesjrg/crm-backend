@@ -159,6 +159,21 @@ The auth user must exist first (created in Supabase Auth); self sign-up is disab
 
 Creating a quantity SKU: insert into `product_variants` with `"tracking_mode": "quantity"` (default `serialized`).
 
+## Product images (Supabase Storage, migration 0021)
+
+Bucket `product-images`: **public read** (the website uses the public object URL `<project>/storage/v1/object/public/product-images/<storage_path>`, no login),
+2 MiB limit, JPEG / PNG / WebP only (enforced by Storage). Object names must be `products/<folder>/<file>`, where `<folder>` is a product id or slug and `<file>` a plain
+name (letters, digits, `.`, `_`, `-`; no slashes, no `..`).
+
+| Who | List | Upload / replace | Delete |
+|---|---|---|---|
+| Admin, Manager (active staff) | yes | yes | yes |
+| anon, a login without a staff profile, a deactivated staff member | no | no | no |
+
+Workflow for a client: upload the file to `products/<product id>/<random>.<ext>`, then insert a `product_images` row (`product_id`, `storage_path` = the object name, `alt_text`,
+`sort_order`, `is_primary`). To remove: delete the object, then the row. `product_images.storage_path` must follow the same layout (check constraint, `23514` otherwise) and be unique.
+Bucket settings themselves cannot be changed from the API. Image files are **not** included in `scripts/backup.sh` (it dumps the database only).
+
 ## Public catalogue (anon key, read-only)
 
 | View | Columns |
