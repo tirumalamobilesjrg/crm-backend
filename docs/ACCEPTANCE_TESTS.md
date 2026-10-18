@@ -37,7 +37,7 @@ Each business rule, the automated test(s) that prove it, and whether the proof i
 | R4 | Manager can do operational work (products, publish, purchases, inventory, IMEI correction, POS, customers, expenses) | 03/14 positive cases; 05, 06, 11, 12 run as Managers | verified |
 | R5 | Removed-role accounts and unprofiled/deactivated users are denied everywhere | 03 loop over former holders, no-profile and inactive users x 6 RPCs; 02 columns `inactive`, `nostaff` | verified |
 | R6 | Sensitive actions by both roles are audited with actor and role | 14 `audit: ...` (12 assertions) | verified |
-| R7 | Role migration is safe: refuses unsupported roles, promotes nobody, keeps history | `tests/upgrade/role_migration.sh` S1-S5 (28 checks) | verified locally; not yet in a CI run |
+| R7 | Role migration is safe: refuses unsupported roles, promotes nobody, keeps history | `tests/upgrade/role_migration.sh` S1-S5 (29 checks) | verified locally; not yet in a CI run |
 | R8 | Manager discount limits are configuration; unlimited Manager discounts are not the default | 00 `default: Manager discount policy grants no allowance`, `...even a 1 rupee Manager discount is refused`; 10 | verified |
 | **Access control** | | | |
 | A1 | RLS everywhere; deny by default; every identity × table | 01, 02 (Admin, Manager, second Manager, deactivated Manager, no-profile user x all tables, plus anon), 03 | verified (SQL level) |
