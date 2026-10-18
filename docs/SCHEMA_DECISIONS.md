@@ -28,6 +28,7 @@ confirmation. Nothing here is deployed.
 | Tax | **No GST or any tax calculation or breakdown.** Columns for tax, HSN and GSTIN were removed. Prices are plain selling prices; `total = sum(unit_price × qty) − discounts`. Invoices make no statutory claim. | migration 0011; test 01 asserts no tax-like column exists |
 | Discounts | Per-role policy rows (`can_discount`, `max_percent` per line, optional `max_amount` per sale, `can_approve`). Over-limit discounts need a single-use, expiring, capped approval from an authorised approver. Every discounted sale stores amount, basis (`role_limit`/`manager_approval`), authorising user, approval id and reason. Enforced in the database, audited. | `discount_policies`, `discount_approvals`, `sales.discount_*` |
 | Public price | `product_variants.public_price` is the only price the website can see. Admin or Manager; records approver and time; ≤ MRP; clearing it clears the approval. Never derived from selling price or cost. No offers/discount data is exposed. | 0003 guard, 0018 |
+| Sale price ceiling | A sale line's unit price may not exceed the variant's MRP; checked in `finalize_sale` per unit, before discount, for Admin and Manager alike (`TM003`). Equal to MRP is allowed; no floor other than > 0. Past sales are not re-checked. | `finalize_sale`, migration 0020, test 15 |
 | Public stock | Only a derived `in_stock`/`out_of_stock` (devices: any in stock; accessories: `on_hand > 0`). No counts. | `public_catalogue_*` views |
 
 ### Initial discount policy values (configuration, not code)

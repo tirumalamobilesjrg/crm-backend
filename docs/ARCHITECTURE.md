@@ -61,7 +61,8 @@ row per unit) or `quantity` (accessories; one `stock_levels` row per SKU). It ca
 - **Quantity stock:** `stock_levels.on_hand` changes only inside the movement trigger (guarded update that refuses
   to go below zero; the row lock serialises concurrent sales of the same SKU); every movement stores `balance_after`,
   so the ledger reconstructs the balance.
-- **Atomic sale:** `finalize_sale` locks the devices and SKU balances (stable order), prices lines, applies the
+- **Atomic sale:** `finalize_sale` locks the devices and SKU balances (stable order), prices lines (a unit price may not exceed the
+  variant's MRP, migration 0020), applies the
   seller's discount policy or a single-use approval, requires the single payment to equal the total, allocates a
   gapless invoice number, and writes sale, lines, invoice (with shop/customer snapshots), the payment, movements,
   audit row and idempotency record in one transaction. Deferred constraint triggers re-verify completeness at

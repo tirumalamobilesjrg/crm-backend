@@ -31,7 +31,7 @@ button press) and **reuse it on retries**.
 | `42501` | not permitted (no staff profile, deactivated, role not allowed, no privilege) |
 | `22P02` | also returned when a removed role name is supplied for `staff_role` |
 | `TM002` | idempotency key reused with different arguments |
-| `TM003` | invalid request (shape, missing field, bad value) |
+| `TM003` | invalid request (shape, missing field, bad value; for `finalize_sale` also a unit price above the variant's MRP) |
 | `TM004` | device unavailable / insufficient stock / invalid stock transition |
 | `TM005` | discount not authorised (over limit, bad/used/expired approval, ineligible approver) |
 | `TM006` | payment amount does not equal the sale total |
@@ -67,12 +67,21 @@ Payment (anything other than these keys is rejected; arrays are rejected — no 
 ```
 `amount` must equal Σ(unit_price × quantity − discount_amount) exactly (`TM006` otherwise).
 
+**Price ceiling (migration 0020).** Each line's `unit_price` must be **at most the variant's MRP** (`product_variants.mrp`,
+read at sale time). A price above it is rejected with `TM003` and a message of the form
+`line 2: unit price 72000.01 is above the MRP 72000.00 for SKU NOVA-X1-8-128-BLK`; the whole request fails and
+nothing is written (no sale, movement, audit row or invoice number is consumed, and the idempotency key may be
+reused with a corrected price). The check is on the per-unit price *before* discount, so a discount cannot be used to
+offset an over-MRP price. A price equal to the MRP is accepted, and there is no minimum other than `> 0`.
+Applies to Admin and Manager alike; past sales are not re-checked. A client should still validate against the MRP
+it shows to the user, since the database is the final check.
+
 Returns `{"sale_id","invoice_id","invoice_number","total","discount_total","replayed"}`.
 
 Effects (one transaction): locks devices and SKU balances in a stable order; validates availability, prices, the
 role's discount policy or the supplied approval; inserts `sales`, `sale_items`, `invoices` (shop/customer snapshot),
 `invoice_items`, one `payments` row, one `stock_movements` row per line, one audit entry; marks the approval used.
-Commit-time triggers re-verify completeness. Error cases: `42501`, `TM002`, `TM003`, `TM004`, `TM005`, `TM006`, `TM013`.
+Commit-time triggers re-verify completeness. Error cases: `42501`, `TM002`, `TM003` (including price above MRP), `TM004`, `TM005`, `TM006`, `TM013`.
 
 ## `rpc/receive_purchase` — Admin, Manager
 
