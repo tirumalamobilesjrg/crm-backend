@@ -11,8 +11,10 @@ declare
 begin
   -- the fixture receipt already happened; verify what it wrote
   perform t.reset();
-  perform t.eq((select count(*) from public.stock_movements where movement_type = 'purchase_receipt'), 4::bigint, 'one receipt movement per received device');
-  perform t.eq((select count(*) from public.inventory_item_costs where cost_price = 50000), 3::bigint, 'acquisition cost recorded per device (excl. GST)');
+  perform t.eq((select count(*) from public.stock_movements where movement_type = 'purchase_receipt' and inventory_item_id is not null), 4::bigint, 'one receipt movement per received device');
+  perform t.eq((select count(*) from public.stock_movements where movement_type = 'purchase_receipt' and inventory_item_id is null and quantity_delta = 50 and balance_after = 50),
+               1::bigint, 'accessory receipt is one signed movement with the resulting balance');
+  perform t.eq((select count(*) from public.inventory_item_costs where cost_price = 50000), 3::bigint, 'acquisition cost recorded per device');
   perform t.eq((select status::text from public.purchases where id = t.fx('purchase')), 'received', 'purchase is marked received');
   perform t.ok((select received_at is not null and received_by = 'a0000000-0000-0000-0000-000000000004' from public.purchases where id = t.fx('purchase')),
                'receipt time and actor recorded');

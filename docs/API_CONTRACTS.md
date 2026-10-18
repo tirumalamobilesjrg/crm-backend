@@ -1,0 +1,147 @@
+# API contracts
+
+The backend is Supabase: clients call PostgREST. Direct table access is governed by RLS (see SECURITY.md);
+operations that must be atomic are database functions called as `POST /rest/v1/rpc/<name>` with the signed-in
+user's JWT. All amounts are INR as JSON numbers with at most 2 decimals. All UUIDs are strings.
+
+> **Verification status.** Contracts below are verified at the SQL level (`select public.<fn>(...)` under the
+> `authenticated` role with JWT claims set). The PostgREST HTTP layer (status codes, error JSON, argument naming,
+> schema cache) was **not** exercised. PostgREST normally returns database errors as JSON
+> `{"code": "<SQLSTATE>", "message": "...", "details": ..., "hint": ...}`; custom `TMxxx` codes are expected to
+> come back as HTTP 400 and `42501` as 401/403. Confirm against a real project before relying on status codes.
+
+## Idempotency (all RPCs)
+
+Every RPC takes `p_idempotency_key` (text, 8–128 chars). Generate one UUID per user *intent* (one "Complete sale"
+button press) and **reuse it on retries**.
+
+| Situation | Result |
+|---|---|
+| First call | does the work, stores the response, `"replayed": false` |
+| Same key, same user, same arguments | returns the stored response with `"replayed": true`; no side effects |
+| Same key, same user, different arguments | error `TM002` |
+| Same key while the first call is still running | waits, then behaves as above |
+| Call failed (any error) | nothing is stored, the key may be reused for a corrected retry |
+| Same key, different user | independent (keys are per user and per function) |
+
+## Error codes (SQLSTATE)
+
+| Code | Meaning |
+|---|---|
+| `42501` | not permitted (no profile, inactive, wrong role, no privilege) |
+| `TM002` | idempotency key reused with different arguments |
+| `TM003` | invalid request (shape, missing field, bad value) |
+| `TM004` | device unavailable / insufficient stock / invalid stock transition |
+| `TM005` | discount not authorised (over limit, bad/used/expired approval, ineligible approver) |
+| `TM006` | payment amount does not equal the sale total |
+| `TM007` | purchase in the wrong state |
+| `TM010` | row is append-only / protected from direct change |
+| `TM011` | cannot remove the last active owner |
+| `TM012` | commit-time integrity check failed (incomplete sale or device) |
+| `TM013` | wrong SKU tracking mode |
+| `23505` | duplicate (IMEI/serial, customer phone, supplier invoice, invoice number…) |
+| `23514` | check constraint (bad IMEI check digit, negative amount, …) |
+| `22P02` | malformed UUID / enum / number |
+
+## `rpc/finalize_sale` — roles: owner, manager, sales_executive
+
+```
+p_idempotency_key text
+p_customer_id     uuid | null          -- null = walk-in
+p_items           jsonb array (1..50)
+p_payment         jsonb object          -- exactly one payment
+p_notes           text | null
+p_discount_reason text | null           -- required (>= 3 chars) when any discount > 0
+p_discount_approval_id uuid | null      -- see grant_discount_approval
+```
+Line shapes (discount is for the whole line; `unit_price` > 0, max 2 decimals):
+```json
+{"inventory_item_id": "<uuid>", "unit_price": 70000, "discount_amount": 1000}          // phone/serialized, quantity is always 1
+{"variant_id": "<uuid>", "quantity": 2, "unit_price": 799, "discount_amount": 0}      // accessory/quantity SKU
+```
+Payment (anything other than these keys is rejected; arrays are rejected — no split payments):
+```json
+{"method": "cash|upi|card|bank_transfer|cheque", "amount": 66598, "reference": "optional free text"}
+```
+`amount` must equal Σ(unit_price × quantity − discount_amount) exactly (`TM006` otherwise).
+
+Returns `{"sale_id","invoice_id","invoice_number","total","discount_total","replayed"}`.
+
+Effects (one transaction): locks devices and SKU balances in a stable order; validates availability, prices, the
+role's discount policy or the supplied approval; inserts `sales`, `sale_items`, `invoices` (shop/customer snapshot),
+`invoice_items`, one `payments` row, one `stock_movements` row per line, one audit entry; marks the approval used.
+Commit-time triggers re-verify completeness. Error cases: `42501`, `TM002`, `TM003`, `TM004`, `TM005`, `TM006`, `TM013`.
+
+## `rpc/receive_purchase` — owner, manager, inventory_executive
+
+```
+p_idempotency_key text, p_purchase_id uuid, p_units jsonb array
+```
+`p_units`: one element per **serialized** device:
+`{"purchase_item_id","imei1"?,"imei2"?,"serial_number"?,"condition"?,"shelf_location"?}`; at least one of `imei1`/`serial_number`.
+Quantity SKU lines take **no** units (use `[]` for accessory-only purchases) and are received in full.
+Returns `{"purchase_id","units_received","quantity_lines_received","quantity_units_received","replayed"}`.
+Errors: `TM003` (wrong unit counts, foreign line), `TM007` (not a draft / no lines), `23505` (duplicate IMEI/serial), `23514` (bad IMEI).
+
+## `rpc/adjust_stock` — owner, manager, inventory_executive (serialized devices)
+
+```
+p_idempotency_key text, p_inventory_item_id uuid, p_reason 'damaged'|'lost'|'found'|'repaired'|'returned_to_supplier', p_notes text (>= 3)
+```
+Allowed: in_stock → damaged|lost|returned_to_supplier; damaged → in_stock (`repaired`)|returned_to_supplier; lost → in_stock (`found`).
+Sold devices and `returned_to_supplier` are terminal here. Returns `{"adjustment_id","from_status","to_status","replayed"}`. Errors: `TM003`, `TM004`.
+
+## `rpc/adjust_quantity_stock` — owner, manager, inventory_executive (accessory SKUs)
+
+```
+p_idempotency_key text, p_variant_id uuid, p_quantity_delta int (non-zero), p_reason adjustment_reason, p_notes text (>= 3)
+```
+Sign rules: `damaged`/`lost`/`returned_to_supplier` negative; `found` positive; `correction` either; `repaired` not allowed.
+Never drives stock below zero (`TM004`). Returns `{"adjustment_id","balance_after","replayed"}`.
+
+## `rpc/grant_discount_approval` — roles with `discount_policies.can_approve` (owner, manager by default)
+
+```
+p_idempotency_key text, p_requested_for uuid, p_max_amount numeric (> 0, total discount cap for the sale),
+p_reason text (>= 3), p_valid_minutes int default 15 (1..120)
+```
+The target must be an active staff member whose role may discount; self-approval is refused; the amount may not
+exceed the approver's own per-sale cap. At use time the approval is checked again: right seller, unused, unexpired,
+discount ≤ `max_amount`, approver still active and authorised, and each line within the approver's per-line percent.
+Returns `{"approval_id","expires_at","replayed"}`.
+
+## `rpc/correct_item_identifiers` — owner, manager
+
+```
+p_idempotency_key text, p_inventory_item_id uuid, p_changes jsonb, p_reason text (>= 10)
+```
+`p_changes` has any of `imei1`, `imei2`, `serial_number`; a JSON `null` clears that value; omitted keys are untouched.
+New values are validated (15-digit IMEI with check digit; serial `[A-Z0-9-]{4,40}`, upper-cased) and must not be
+active on any other device (`23505`). Allowed in any stock status. Old values are retired, not deleted; a
+correction record and audit entry are written; stock status and issued invoices are unaffected.
+Returns `{"correction_id","inventory_item_id","replayed"}`.
+
+## Direct table access (RLS-checked)
+
+| Resource | Read | Write |
+|---|---|---|
+| brands, categories, products, product_variants, specifications, images | all active staff | owner, manager, inventory_executive (publishing a product or setting `public_price`: owner, manager only) |
+| suppliers, purchases, purchase_items | owner, manager, inventory, accountant | owner, manager, inventory — drafts only; `status` may go draft → cancelled; receiving only via RPC |
+| customers | owner, manager, sales, accountant | insert/update: owner, manager, sales; delete: owner |
+| expenses | owner, manager, accountant | owner, manager, accountant; delete: owner |
+| discount_policies | all active staff | owner |
+| discount_approvals, stock_levels, inventory_items, stock_movements, stock_adjustments, sales, sale_items, invoices, invoice_items, payments, inventory_item_costs, audit_logs, inventory_identifier_corrections | see SECURITY.md | **never directly** |
+
+Creating a quantity SKU: insert into `product_variants` with `"tracking_mode": "quantity"` (default `serialized`).
+
+## Public catalogue (anon key, read-only)
+
+| View | Columns |
+|---|---|
+| `public_catalogue_products` | id, slug, name, brand_name, brand_slug, category_name, category_slug, description, published_at, updated_at, availability |
+| `public_catalogue_variants` | id, product_slug, color, ram_gb, storage_gb, public_price, availability |
+| `public_catalogue_images` | id, product_slug, storage_path, alt_text, sort_order, is_primary |
+| `public_catalogue_specifications` | id, product_slug, group_name, spec_key, spec_value, sort_order |
+
+`availability` ∈ `in_stock` | `out_of_stock`. `public_price` is null when no approved price exists ("contact the shop").
+There are no offer, discount, cost, margin, stock-count, IMEI, supplier or customer fields, and none will be added.

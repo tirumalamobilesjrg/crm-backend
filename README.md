@@ -13,31 +13,37 @@ The other two repositories only consume it.
 
 ## Status
 
-Task 1 (foundation) only. There is no application server: clients talk to Supabase's Data API (PostgREST)
-and call three database functions for the operations that must be transactional. Not yet built: the
-CRM UI, the website, returns/voids, credit sales, non-serialised stock, image storage policies.
-See [docs/SCHEMA_DECISIONS.md](docs/SCHEMA_DECISIONS.md) for open questions and
+Tasks 1 and 1B (foundation + finalized shop rules). There is no application server: clients talk to Supabase's Data
+API (PostgREST) and call database functions for the operations that must be transactional. Not yet built: the CRM
+UI, the website, returns/voids/refunds, image storage policies. Out of scope by decision: GST/tax, online
+payments, split payments, credit/EMI.
+See [docs/SCHEMA_DECISIONS.md](docs/SCHEMA_DECISIONS.md) for decisions and open questions,
+[docs/API_CONTRACTS.md](docs/API_CONTRACTS.md) for the client contract and
 [docs/TESTING.md](docs/TESTING.md) for what is and is not verified.
 
 ## Domain model in one paragraph
 
 A **product** is a model ("Nova X1") that the website describes. A **variant** is a sellable SKU of that
-model (colour / RAM / storage) with GST rate and prices. An **inventory item** is one physical device with its
-own IMEI(s) or serial number and a status (`in_stock`, `sold`, `damaged`, `lost`, `returned_to_supplier`).
-Status changes only by appending to the `stock_movements` ledger. Acquisition cost lives in a separate table
-(`inventory_item_costs`) so it can have stricter access than the device record.
+model (colour / RAM / storage) with its prices and a `tracking_mode`: `serialized` for phones, `quantity` for
+accessories. A serialized variant has one **inventory item** per physical device (own IMEI(s)/serial and a status:
+`in_stock`, `sold`, `damaged`, `lost`, `returned_to_supplier`); a quantity variant has one `stock_levels.on_hand`
+number. Both change only by appending to the `stock_movements` ledger. Acquisition cost of devices lives in a
+separate table (`inventory_item_costs`) so it can have stricter access than the device record.
 
 ## Write paths
 
 | Operation | How | Who |
 |---|---|---|
-| Catalogue, suppliers, draft purchases, customers, expenses | direct table writes, RLS-checked | see [docs/SECURITY.md](docs/SECURITY.md) |
-| Receive a purchase (creates devices, costs, movements) | `rpc/receive_purchase` | owner, manager, inventory executive |
-| Adjust stock (damaged / lost / found / repaired / returned to supplier) | `rpc/adjust_stock` | owner, manager, inventory executive |
-| Sell devices (sale, invoice, payments, movements, audit) | `rpc/finalize_sale` | owner, manager, sales executive |
+| Catalogue, suppliers, draft purchases, customers, expenses, discount limits | direct table writes, RLS-checked | see [docs/SECURITY.md](docs/SECURITY.md) |
+| Receive a purchase (devices by IMEI/serial, accessories by quantity) | `rpc/receive_purchase` | owner, manager, inventory executive |
+| Adjust stock (device status / accessory quantity) | `rpc/adjust_stock`, `rpc/adjust_quantity_stock` | owner, manager, inventory executive |
+| Correct an IMEI/serial (audited, history kept) | `rpc/correct_item_identifiers` | owner, manager |
+| Sell (sale, invoice, one payment, movements, audit) | `rpc/finalize_sale` | owner, manager, sales executive |
+| Approve a discount above someone's limit | `rpc/grant_discount_approval` | roles with `can_approve` (owner, manager) |
 
-All three take an **idempotency key** (8–128 chars, generated once per user action by the client and reused on retry).
-Everything else that touches stock, sales, invoices, payments or audit logs is blocked at the privilege level.
+All RPCs take an **idempotency key** (8-128 chars, generated once per user action by the client and reused on
+retry). Everything else that touches stock, sales, invoices, payments, approvals or audit logs is blocked at the
+privilege level. Exact argument shapes and errors: [docs/API_CONTRACTS.md](docs/API_CONTRACTS.md).
 
 ## Run the tests
 
@@ -60,6 +66,8 @@ never be placed in browser code or in any `NEXT_PUBLIC_*` / `VITE_*` variable.**
 
 - [Architecture and zero-cost deployment](docs/ARCHITECTURE.md)
 - [Security model and role matrix](docs/SECURITY.md)
-- [Schema decisions that need your confirmation](docs/SCHEMA_DECISIONS.md)
+- [Schema decisions (decided and still open)](docs/SCHEMA_DECISIONS.md)
+- [API contracts](docs/API_CONTRACTS.md)
+- [Acceptance tests](docs/ACCEPTANCE_TESTS.md)
 - [Testing and Supabase differences](docs/TESTING.md)
 - [Operations: migrations, backups, restore](docs/OPERATIONS.md)

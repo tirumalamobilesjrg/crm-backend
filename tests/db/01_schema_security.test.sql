@@ -36,7 +36,8 @@ select t.ok(not exists (
 -- authenticated: API roles cannot write ledger / financial / internal tables directly.
 select t.ok(not exists (
   select 1 from unnest(array['inventory_items','inventory_item_costs','inventory_identifiers','stock_movements',
-                             'stock_adjustments','sales','sale_items','invoices','invoice_items','payments',
+                             'stock_adjustments','stock_levels','inventory_identifier_corrections','discount_approvals',
+                             'sales','sale_items','invoices','invoice_items','payments',
                              'invoice_sequences','audit_logs','idempotency_keys']) tbl
    where has_table_privilege('authenticated', format('public.%I', tbl)::regclass, 'insert,update,delete,truncate')),
   'authenticated has no write privilege on ledger and financial tables');
@@ -50,11 +51,24 @@ select t.ok(not exists (
      and has_table_privilege('authenticated', c.oid, 'truncate,references,trigger')),
   'authenticated has no TRUNCATE/REFERENCES/TRIGGER anywhere');
 
--- authenticated can call exactly the three business RPCs in public.
+-- Only discount_policies (owner, via RLS) is a directly writable configuration table among the new ones.
+select t.ok(has_table_privilege('authenticated', 'public.discount_policies', 'insert,update')
+            and not has_table_privilege('authenticated', 'public.discount_policies', 'delete'),
+            'discount_policies: authenticated may insert/update (RLS limits to owner) but never delete');
+
+-- No tax columns or GST concepts anywhere in the schema (Task 1B: no GST in the MVP).
+select t.ok(not exists (select 1 from information_schema.columns
+                         where table_schema in ('public', 'app') and column_name ~* '(gst|tax|hsn|cgst|sgst|igst)'),
+            'no GST/tax/HSN columns exist',
+            (select string_agg(table_name || '.' || column_name, ', ') from information_schema.columns
+              where table_schema = 'public' and column_name ~* '(gst|tax|hsn|cgst|sgst|igst)'));
+
+-- authenticated can call exactly the business RPCs in public.
 select t.eq((select string_agg(p.proname, ',' order by p.proname)
                from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname = 'public' and has_function_privilege('authenticated', p.oid, 'execute')),
-            'adjust_stock,finalize_sale,receive_purchase', 'authenticated can execute only the three business RPCs');
+            'adjust_quantity_stock,adjust_stock,correct_item_identifiers,finalize_sale,grant_discount_approval,receive_purchase',
+            'authenticated can execute only the six business RPCs');
 select t.ok(not exists (
   select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname in ('public', 'app') and p.prosecdef and not coalesce(p.proconfig @> array['search_path=""'], false)),

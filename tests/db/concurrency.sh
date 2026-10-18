@@ -11,7 +11,7 @@ trap 'rm -rf "$WORK"' EXIT
 SALES='a0000000-0000-0000-0000-000000000003'
 MGR='a0000000-0000-0000-0000-000000000002'
 
-record() { "${PSQL[@]}" -c "select t._record('concurrency: $1', $2, \$d\$$3\$d\$)" >/dev/null; }
+record() { "${PSQL[@]}" -c "select set_config('t.file', 'concurrency', false); select t._record('concurrency: $1', $2, \$d\$$3\$d\$)" >/dev/null; }
 
 # Setup: six fresh devices, received through the real RPC.
 "${PSQL[@]}" -o /dev/null <<SQL
@@ -37,7 +37,7 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"$2","role":"authenticated"}', true);
 select public.finalize_sale('$3', null,
   '[{"inventory_item_id":"$4","unit_price":60000}]'::jsonb,
-  '[{"method":"cash","amount":60000}]'::jsonb)::text;
+  '{"method":"cash","amount":60000}'::jsonb)::text;
 select pg_sleep($5);
 commit;
 SQL
@@ -86,7 +86,7 @@ cat <<SQL | "${PSQL[@]}" > /dev/null 2>&1 || true
 begin;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"$SALES","role":"authenticated"}', true);
-select public.finalize_sale('conc-d-key-0001', null, '[{"inventory_item_id":"$I5","unit_price":60000}]'::jsonb, '[{"method":"cash","amount":60000}]'::jsonb);
+select public.finalize_sale('conc-d-key-0001', null, '[{"inventory_item_id":"$I5","unit_price":60000}]'::jsonb, '{"method":"cash","amount":60000}'::jsonb);
 rollback;
 SQL
 SEQ_AFTER=$("${PSQL[@]}" -c "select last_number from public.invoice_sequences order by fiscal_year desc limit 1")
@@ -94,3 +94,67 @@ ST=$("${PSQL[@]}" -c "select status from public.inventory_items where id = '$I5'
 KEYS=$("${PSQL[@]}" -c "select count(*) from public.idempotency_keys where idem_key = 'conc-d-key-0001'")
 record "an aborted sale transaction leaves stock, invoice sequence and idempotency key untouched" \
   "$([[ "$ST" == in_stock && "$SEQ_BEFORE" == "$SEQ_AFTER" && "$KEYS" == 0 ]] && echo true || echo false)" "status=$ST seq=$SEQ_BEFORE/$SEQ_AFTER keys=$KEYS"
+
+# generic helper: run arbitrary SQL as a signed-in user inside one transaction, optionally holding it open.
+as_user_sql() { # outfile user hold sql
+  cat <<SQL | "${PSQL[@]}" > "$1" 2> "$1.err" || true
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"$2","role":"authenticated"}', true);
+$4
+select pg_sleep($3);
+commit;
+SQL
+}
+OWNER='a0000000-0000-0000-0000-000000000001'
+INV='a0000000-0000-0000-0000-000000000004'
+VC=$("${PSQL[@]}" -c "select t.fx('v_case')")
+
+# E: two sellers each ask for most of an accessory SKU's stock at once; only one may get it.
+ONHAND=$("${PSQL[@]}" -c "select on_hand from public.stock_levels where variant_id = '$VC'")
+QTY=$((ONHAND - 1))
+SALE_QTY="select public.finalize_sale('KEY', null, '[{\"variant_id\":\"$VC\",\"quantity\":$QTY,\"unit_price\":100}]'::jsonb, '{\"method\":\"cash\",\"amount\":$((QTY * 100))}'::jsonb)::text;"
+as_user_sql "$WORK/e1" $SALES 2 "${SALE_QTY/KEY/conc-e-key-0001}" &
+sleep 0.7
+as_user_sql "$WORK/e2" $MGR 0 "${SALE_QTY/KEY/conc-e-key-0002}"
+wait
+EWIN=$(cat "$WORK/e1" "$WORK/e2" | grep -c '"sale_id"' || true)
+AFTER=$("${PSQL[@]}" -c "select on_hand from public.stock_levels where variant_id = '$VC'")
+record "concurrent accessory sales: exactly one gets the stock" "$([[ "$EWIN" == 1 ]] && echo true || echo false)" "winners=$EWIN"
+record "the losing accessory sale is told stock is insufficient" "$(cat "$WORK/e1.err" "$WORK/e2.err" | grep -q 'insufficient stock' && echo true || echo false)" "$(cat "$WORK/e1.err" "$WORK/e2.err" | head -c 300)"
+record "accessory stock is never oversold or negative after the race" "$([[ "$AFTER" == 1 ]] && echo true || echo false)" "before=$ONHAND after=$AFTER"
+
+# F: one discount approval used by two sales at once; it can be consumed only once.
+APPR=$("${PSQL[@]}" <<SQL
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"$MGR","role":"authenticated"}', true);
+select (public.grant_discount_approval('conc-f-grant-01', '$SALES', 3000, 'Concurrency test approval', 30) ->> 'approval_id');
+commit;
+SQL
+)
+APPR=$(echo "$APPR" | grep -E '^[0-9a-f-]{36}$' | head -1)
+sale_with_approval() { echo "select public.finalize_sale('$1', null, '[{\"inventory_item_id\":\"$2\",\"unit_price\":10000,\"discount_amount\":1500}]'::jsonb, '{\"method\":\"cash\",\"amount\":8500}'::jsonb, null, 'Approval race', '$APPR')::text;"; }
+as_user_sql "$WORK/f1" $SALES 2 "$(sale_with_approval conc-f-key-0001 "$I6")" &
+sleep 0.7
+as_user_sql "$WORK/f2" $SALES 0 "$(sale_with_approval conc-f-key-0002 "$I5")"   # different device: only the approval is contested
+wait
+FWIN=$(cat "$WORK/f1" "$WORK/f2" | grep -c '"sale_id"' || true)
+USED=$("${PSQL[@]}" -c "select count(*) from public.discount_approvals where id = '$APPR' and used_in_sale_id is not null")
+record "one approval cannot back two concurrent sales" "$([[ "$FWIN" == 1 && "$USED" == 1 ]] && echo true || echo false)" "winners=$FWIN used=$USED"
+record "the second sale is refused because the approval was already used" "$(cat "$WORK/f1.err" "$WORK/f2.err" | grep -q 'already used' && echo true || echo false)" "$(cat "$WORK/f1.err" "$WORK/f2.err" | head -c 200)"
+
+# G: two corrections racing to give different devices the same IMEI; exactly one succeeds.
+NEWIMEI=$("${PSQL[@]}" -c "select t.imei(8888)")
+D1=$("${PSQL[@]}" -c "select id from public.inventory_items where imei1 = t.imei(7004)")
+D2=$("${PSQL[@]}" -c "select id from public.inventory_items where imei1 = t.imei(7005)")
+CORR="select public.correct_item_identifiers('KEY', 'DEV', '{\"imei1\":\"$NEWIMEI\"}'::jsonb, 'Concurrency test: same IMEI to two devices')::text;"
+c1="${CORR/KEY/conc-g-key-0001}"; c1="${c1/DEV/$D1}"
+c2="${CORR/KEY/conc-g-key-0002}"; c2="${c2/DEV/$D2}"
+as_user_sql "$WORK/g1" $OWNER 2 "$c1" &
+sleep 0.7
+as_user_sql "$WORK/g2" $OWNER 0 "$c2"
+wait
+GWIN=$(cat "$WORK/g1" "$WORK/g2" | grep -c 'correction_id' || true)
+HOLD=$("${PSQL[@]}" -c "select count(*) from public.inventory_identifiers where value = '$NEWIMEI' and retired_at is null")
+record "racing IMEI corrections: exactly one device ends up holding the IMEI" "$([[ "$GWIN" == 1 && "$HOLD" == 1 ]] && echo true || echo false)" "winners=$GWIN active_holders=$HOLD"

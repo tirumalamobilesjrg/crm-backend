@@ -13,6 +13,7 @@ begin
   perform t.eq((select count(*) from public.stock_movements where inventory_item_id = hidden), 2::bigint, 'damaged device has receipt + adjustment movements');
 
   perform t.as_user(inv);
+  perform t.throws(format($q$select public.adjust_stock('adj-corr-key-001', %L, 'correction', 'quantity-only reason')$q$, stock), 'quantity SKUs', '"correction" is not valid for a serialized device');
   perform t.throws(format($q$select public.adjust_stock('adj-sold-key-01', %L, 'lost', 'sold device cannot be lost')$q$, sold1), 'TM004', 'a sold device cannot be adjusted');
   perform t.throws(format($q$select public.adjust_stock('adj-found-key-1', %L, 'found', 'was never lost')$q$, stock), 'TM004', '"found" only applies to lost devices');
   perform t.throws(format($q$select public.adjust_stock('adj-notes-key-1', %L, 'damaged', ' ')$q$, stock), 'TM003', 'notes are mandatory');

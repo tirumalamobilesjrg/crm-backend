@@ -61,13 +61,16 @@ begin
   perform t.eq((select count(*) from public.idempotency_keys where idem_key like 'imei-%'), 0::bigint, 'rejected receipts stored no idempotency keys');
 
   -- identity is immutable even for the database owner
-  perform t.throws(format($q$update public.inventory_items set imei1 = %L where imei1 = %L$q$, t.imei(300), existing_imei), 'immutable', 'IMEI cannot be edited');
+  perform t.throws(format($q$update public.inventory_items set imei1 = %L where imei1 = %L$q$, t.imei(300), existing_imei), 'correct_item_identifiers', 'IMEI cannot be edited directly (only via the audited correction function)');
   perform t.throws(format($q$update public.inventory_items set variant_id = %L where imei1 = %L$q$, v2, existing_imei), 'immutable', 'variant of a device cannot be changed');
   perform t.throws(format($q$delete from public.inventory_items where imei1 = %L$q$, existing_imei), 'cannot be deleted', 'inventory items cannot be deleted');
   perform t.throws(format($q$update public.inventory_items set status = 'damaged' where imei1 = %L$q$, existing_imei), 'only through stock_movements', 'status cannot be changed without a stock movement');
-  perform t.throws($q$delete from public.inventory_identifiers$q$, 'append-only', 'identifier registry rows cannot be removed');
-  perform t.eq((select count(*) from public.inventory_identifiers), (select count(*) filter (where imei1 is not null) + count(*) filter (where imei2 is not null) + count(*) filter (where serial_number is not null) from public.inventory_items),
-               'identifier registry matches the inventory');
+  perform t.throws($q$delete from public.inventory_identifiers$q$, 'cannot be deleted', 'identifier registry rows cannot be removed');
+  perform t.throws($q$update public.inventory_identifiers set value = 'x'$q$, 'correct_item_identifiers', 'identifier registry rows cannot be edited outside a correction');
+  perform t.eq((select count(*) from public.inventory_identifiers where retired_at is null), (select count(*) filter (where imei1 is not null) + count(*) filter (where imei2 is not null) + count(*) filter (where serial_number is not null) from public.inventory_items),
+               'active identifier registry rows match the inventory');
+  perform t.throws(format($q$insert into public.inventory_items (variant_id, purchase_item_id, imei1) values (%L, %L, %L)$q$, t.fx('v_case'), pi, t.imei(399)),
+                   'serialized SKUs', 'a device cannot be created for a quantity-tracked SKU');
 
   -- a device row inserted without its receipt movement fails at commit
   set constraints all immediate;

@@ -31,7 +31,11 @@ declare
     ['invoices',               'TTOFTFFF'],
     ['invoice_items',          'TTOFTFFF'],
     ['payments',               'TTOFTFFF'],
-    ['expenses',               'TTFFTFFF']];
+    ['expenses',               'TTFFTFFF'],
+    ['stock_levels',           'TTTTTFFT'],
+    ['discount_policies',      'TTTTTFFT'],
+    ['discount_approvals',     'TTFFTFFO'],
+    ['inventory_identifier_corrections', 'TTFTTFFF']];
   i int; j int; tbl text; pat text; total bigint; got bigint; want bigint; ch text;
 begin
   for i in 1 .. array_length(matrix, 1) loop
