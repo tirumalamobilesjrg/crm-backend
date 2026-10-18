@@ -1,0 +1,32 @@
+# Supabase CLI configuration for local development and CI. It contains no secrets and
+# is never applied to a hosted project (the hosted project is configured in the dashboard).
+# NOTE: written without access to the Supabase CLI in the authoring environment; if
+# `supabase start` rejects a key, consult the CLI version's config reference.
+project_id = "tirumala-crm-backend"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]            # `app` is deliberately NOT exposed through the Data API
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[db.migrations]
+enabled = true
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+enable_signup = false           # staff accounts are created by the owner, never self-registered

@@ -1,0 +1,30 @@
+name: Encrypted backup (NOT ENABLED)
+
+# Manual only, and a no-op unless the repository variable BACKUP_ENABLED is 'true'.
+# No schedule is configured on purpose: automated backups are not claimed to be operational
+# until the procedure in docs/OPERATIONS.md has been run end-to-end against the real project
+# and a restore drill from its output has passed.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    if: ${{ vars.BACKUP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client age
+      - name: Create encrypted backup
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+          BACKUP_DIR: ${{ runner.temp }}/backups
+        run: scripts/backup.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crm-encrypted-backup
+          path: ${{ runner.temp }}/backups
+          retention-days: 30

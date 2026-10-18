@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+backups/
+*.age
+*.key
+key.txt
+node_modules/
+supabase/.temp/
+supabase/.branches/
+*.log

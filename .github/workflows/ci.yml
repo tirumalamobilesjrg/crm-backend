@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  db-tests:
+    name: Database tests (PostgreSQL ${{ matrix.pg }}, Supabase shim)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [16, 17]
+    services:
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Apply migrations to a clean database and run all tests
+        run: scripts/test-db.sh
+
+  backup-drill:
+    name: Backup and restore drill (scratch database)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client age
+      - name: Build a populated database
+        run: scripts/test-db.sh
+      - name: Encrypt, restore into a scratch database, compare row counts
+        run: scripts/backup-drill.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck scripts/*.sh tests/db/concurrency.sh
+
+  supabase-local:
+    name: Tests against the real local Supabase stack
+    runs-on: ubuntu-latest
+    # Verifies Supabase-specific behaviour (real auth schema, roles, default privileges).
+    # Marked non-blocking until it has been observed passing; see docs/TESTING.md for current status.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Install PostgreSQL client
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+      - name: Start local Supabase (database + auth only)
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,mailpit,realtime,storage-api,supavisor,postgres-meta
+      - name: Apply migrations from scratch
+        run: supabase db reset
+      - name: Run the database tests
+        env:
+          TEST_MODE: supabase
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: scripts/test-db.sh

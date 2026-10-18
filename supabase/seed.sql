@@ -1,0 +1,2 @@
+-- Intentionally empty. No real or sample customer/staff/business data is committed.
+-- The first owner account is created by the project owner following docs/OPERATIONS.md.
