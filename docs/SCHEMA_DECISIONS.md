@@ -30,6 +30,7 @@ confirmation. Nothing here is deployed.
 | Public price | `product_variants.public_price` is the only price the website can see. Admin or Manager; records approver and time; ≤ MRP; clearing it clears the approval. Never derived from selling price or cost. No offers/discount data is exposed. | 0003 guard, 0018 |
 | Sale price ceiling | A sale line's unit price may not exceed the variant's MRP; checked in `finalize_sale` per unit, before discount, for Admin and Manager alike (`TM003`). Equal to MRP is allowed; no floor other than > 0. Past sales are not re-checked. | `finalize_sale`, migration 0020, test 15 |
 | Product images | Photos live in the public Supabase Storage bucket `product-images` (2 MiB, JPEG/PNG/WebP). Only active Admin/Manager staff may write, only under `products/<folder>/<file>`; `product_images` rows must use the same paths. The website reads the public URL. Image files are not in the database backups. | migration 0021, test 16 |
+| Shop contact details | One source: `shop_settings` (Admin-edited in the CRM). The website reads only `public_shop_profile` (name, address, phone, WhatsApp, email, opening hours, map link, about). | migration 0022, test 17 |
 | Public stock | Only a derived `in_stock`/`out_of_stock` (devices: any in stock; accessories: `on_hand > 0`). No counts. | `public_catalogue_*` views |
 
 ### Initial discount policy values (configuration, not code)

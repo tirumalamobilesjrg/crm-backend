@@ -185,3 +185,12 @@ Bucket settings themselves cannot be changed from the API. Image files are **not
 
 `availability` ∈ `in_stock` | `out_of_stock`. `public_price` is null when no approved price exists ("contact the shop").
 There are no offer, discount, cost, margin, stock-count, IMEI, supplier or customer fields, and none will be added.
+
+## Public shop profile (anon key, read-only, migration 0022)
+
+| View | Columns |
+|---|---|
+| `public_shop_profile` | shop_name, address, phone, whatsapp, email, opening_hours, map_url, about |
+
+One row (the `shop_settings` singleton). An Admin edits these fields in the CRM Settings page; `map_url` must be an `https://` link. Empty fields are `NULL`
+and the website hides what is missing. `legal_name`, `invoice_prefix`, `currency` and every other `shop_settings` column are **not** exposed.

@@ -9,7 +9,7 @@ select t.ok(not exists (select 1 from pg_tables where schemaname = 'public' and 
 select t.ok(not exists (
   select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public' and c.relkind in ('r', 'p', 'v', 'm', 'f')
-     and c.relname not like 'public_catalogue_%'
+     and c.relname not like 'public_catalogue_%' and c.relname <> 'public_shop_profile'
      and has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate,references,trigger')),
   'anon has no privilege on any public table or view except the public catalogue views');
 select t.ok(not exists (
@@ -23,15 +23,15 @@ select t.ok(not exists (
   'anon cannot execute any function in public or app');
 select t.ok(not has_schema_privilege('anon', 'app', 'usage'), 'anon has no usage on the private app schema');
 
--- ... and exactly SELECT on the four catalogue views.
+-- ... and exactly SELECT on the four catalogue views and the shop profile view.
 select t.eq((select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
-              where n.nspname = 'public' and c.relkind = 'v'), 4::bigint, 'public schema contains exactly four views');
+              where n.nspname = 'public' and c.relkind = 'v'), 5::bigint, 'public schema contains exactly five views (four catalogue + shop profile)');
 select t.ok(not exists (
   select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public' and c.relname like 'public_catalogue_%'
+   where n.nspname = 'public' and (c.relname like 'public_catalogue_%' or c.relname = 'public_shop_profile')
      and (not has_table_privilege('anon', c.oid, 'select')
           or has_table_privilege('anon', c.oid, 'insert,update,delete,truncate'))),
-  'anon has SELECT only on the catalogue views');
+  'anon has SELECT only on the catalogue and shop profile views');
 
 -- authenticated: API roles cannot write ledger / financial / internal tables directly.
 select t.ok(not exists (
@@ -113,8 +113,9 @@ select t.eq((select string_agg(c.relname || '.' || a.attname, ',' order by c.rel
   'public_catalogue_images.id,public_catalogue_images.product_slug,public_catalogue_images.storage_path,public_catalogue_images.alt_text,public_catalogue_images.sort_order,public_catalogue_images.is_primary,'
   'public_catalogue_products.id,public_catalogue_products.slug,public_catalogue_products.name,public_catalogue_products.brand_name,public_catalogue_products.brand_slug,public_catalogue_products.category_name,public_catalogue_products.category_slug,public_catalogue_products.description,public_catalogue_products.published_at,public_catalogue_products.updated_at,public_catalogue_products.availability,'
   'public_catalogue_specifications.id,public_catalogue_specifications.product_slug,public_catalogue_specifications.group_name,public_catalogue_specifications.spec_key,public_catalogue_specifications.spec_value,public_catalogue_specifications.sort_order,'
-  'public_catalogue_variants.id,public_catalogue_variants.product_slug,public_catalogue_variants.color,public_catalogue_variants.ram_gb,public_catalogue_variants.storage_gb,public_catalogue_variants.public_price,public_catalogue_variants.availability',
-  'catalogue views expose exactly the approved columns');
+  'public_catalogue_variants.id,public_catalogue_variants.product_slug,public_catalogue_variants.color,public_catalogue_variants.ram_gb,public_catalogue_variants.storage_gb,public_catalogue_variants.public_price,public_catalogue_variants.availability,'
+  'public_shop_profile.shop_name,public_shop_profile.address,public_shop_profile.phone,public_shop_profile.whatsapp,public_shop_profile.email,public_shop_profile.opening_hours,public_shop_profile.map_url,public_shop_profile.about',
+  'public views expose exactly the approved columns');
 select t.ok(not exists (select 1 from information_schema.view_column_usage u
                          where u.view_schema = 'public' and u.table_name in
                            ('inventory_item_costs','customers','suppliers','sales','invoices','payments','staff_profiles','purchases')),

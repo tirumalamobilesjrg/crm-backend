@@ -4,16 +4,16 @@ Database foundation for Tirumala Mobiles on Supabase/PostgreSQL. **This repo own
 No application server: clients (the `crm-frontend` CRM, later the `public-website`) call Supabase's REST API and database functions.
 
 ## Layout
-`supabase/migrations/` (applied in filename order, 0001..0021) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
+`supabase/migrations/` (applied in filename order, 0001..0022) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
 `scripts/test-db.sh` (run all DB tests) · `scripts/backup*.sh`, `restore-check.sh` · `docs/` (ARCHITECTURE, SECURITY, API_CONTRACTS, SCHEMA_DECISIONS, ROLE_MIGRATION, TESTING, OPERATIONS).
 
 ## Non-negotiable rules
-- **Never edit a migration that has been applied** (the hosted project has 0001–0019; 0020 and 0021 are not applied there yet). Add a new forward migration instead.
+- **Never edit a migration that has been applied** (the hosted project has 0001–0019; 0020, 0021 and 0022 are not applied there yet). Add a new forward migration instead.
 - Every new table: enable RLS, grant explicitly (default is deny; `anon`/`authenticated` get nothing by default), add policies, and add it to the
   RLS read matrix (`tests/db/02_rls_read_matrix.test.sql`). Test 01 fails if RLS is missing or anon gains access.
 - Stock, sales, invoices, payments, approvals, audit logs change ONLY through the SECURITY DEFINER functions (`finalize_sale`, `receive_purchase`,
   `adjust_stock`, `adjust_quantity_stock`, `correct_item_identifiers`, `grant_discount_approval`). Direct writes are not granted. Definer functions pin `search_path = ''`.
-- Public website surface = only the four `public_catalogue_*` views (exact column list is asserted by tests). Never expose IMEI, cost, margin, customer or stock counts.
+- Public website surface = only the four `public_catalogue_*` views plus `public_shop_profile` (exact column lists are asserted by tests). Never expose IMEI, cost, margin, customer or stock counts.
 - Role checks live in the database (RLS + function bodies + triggers). Roles come from `staff_profiles`, never from the JWT.
 
 ## Decided business rules

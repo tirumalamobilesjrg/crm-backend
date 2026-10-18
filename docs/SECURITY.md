@@ -5,7 +5,7 @@
 1. **Database is the security boundary.** RLS is enabled on every table (a test fails if one is not). Frontend role
    checks are cosmetic.
 2. **Deny by default.** Migration 0001 removes Supabase's default open grants; migration 0008 revokes everything
-   from `anon`/`authenticated` and re-grants explicitly. Tests assert `anon` has zero privileges outside four views
+   from `anon`/`authenticated` and re-grants explicitly. Tests assert `anon` has zero privileges outside five views
    and cannot execute any function.
 3. **Writes that must be consistent go through functions.** Ledger and financial tables have no INSERT/UPDATE/DELETE
    privilege for API roles at all.
@@ -88,7 +88,7 @@ removed roles, audit of sensitive actions by both roles).
 
 ## Public catalogue exposure
 
-Anonymous users can `SELECT` four views. They are definer-rights views, so their safety is their column list and
+Anonymous users can `SELECT` five views (four catalogue views and `public_shop_profile`). They are definer-rights views, so their safety is their column list and
 `WHERE` clause (published product, active brand/category, active variant). Test 01 asserts the **exact** column
 list of every view in `public`, and that they read no cost/customer/supplier/sales/staff table; test 09 asserts
 behaviour. Never exposed: IMEI/serial, purchase cost, supplier, customer, stock counts, internal SKU, selling price
