@@ -63,6 +63,22 @@ select t.ok(not exists (select 1 from information_schema.columns
             (select string_agg(table_name || '.' || column_name, ', ') from information_schema.columns
               where table_schema = 'public' and column_name ~* '(gst|tax|hsn|cgst|sgst|igst)'));
 
+-- Two-role model: the removed roles exist nowhere.
+select t.eq(enum_range(null::public.staff_role)::text, '{admin,manager}', 'staff_role has exactly the values admin and manager');
+select t.ok(to_regtype('public.staff_role_legacy') is null, 'the legacy role type is gone');
+select t.ok(not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                         where n.nspname in ('public', 'app')
+                           and p.prosrc ~ '\m(owner|sales_executive|inventory_executive|accountant)\M'),
+            'no function in public/app mentions a removed role',
+            (select string_agg(p.proname, ', ') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname in ('public', 'app') and p.prosrc ~ '\m(owner|sales_executive|inventory_executive|accountant)\M'));
+select t.ok(not exists (select 1 from pg_policies where schemaname = 'public'
+                         and coalesce(qual, '') || coalesce(with_check, '') ~ '(owner|sales_executive|inventory_executive|accountant)'),
+            'no RLS policy mentions a removed role');
+select t.eq((select string_agg(role::text, ',' order by role) from public.discount_policies), 'admin,manager', 'discount_policies has exactly one row per remaining role');
+select t.eq((select data_type from information_schema.columns where table_schema = 'public' and table_name = 'audit_logs' and column_name = 'actor_role'), 'text',
+            'audit_logs.actor_role is text so history keeps the role names that were true when written');
+
 -- authenticated can call exactly the business RPCs in public.
 select t.eq((select string_agg(p.proname, ',' order by p.proname)
                from pg_proc p join pg_namespace n on n.oid = p.pronamespace

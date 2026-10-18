@@ -15,12 +15,12 @@
 - **No custom API server.** PostgREST exposes tables/views/RPCs; authorisation is enforced in the database.
   Frontend role checks are for UX only.
 - **Auth:** Supabase Auth issues JWTs; `staff_profiles(user_id, role, is_active)` maps a user to exactly one
-  role. Self sign-up is disabled in `supabase/config.toml` (and a user without an active profile can do nothing
+  of two roles (`admin`, `manager`). Self sign-up is disabled in `supabase/config.toml` (and a user without an active profile can do nothing
   even if an account exists). Every policy and function resolves the role from `staff_profiles` through
   `app.current_staff_role()` — never from a client-supplied claim.
 - **Public website:** reads only the four `public_catalogue_*` views with the anon key. Availability is a derived
   `in_stock` / `out_of_stock`; no counts, IMEIs, costs or customer data. Publishing is a CRM action
-  (`products.is_published`, owner/manager only), so CRM → website propagation is "the views change when the row
+  (`products.is_published`, Admin or Manager), so CRM → website propagation is "the views change when the row
   changes"; the website decides how often to revalidate (ISR/on-demand revalidation is a website-repo task).
 
 ## Schema map (all in `public`, helpers in private schema `app`)

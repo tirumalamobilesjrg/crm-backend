@@ -19,7 +19,7 @@ do \$\$
 declare pur uuid; pi uuid; i int;
 begin
   perform set_config('t.file', 'concurrency', false);
-  perform t.as_user('a0000000-0000-0000-0000-000000000004');
+  perform t.as_user('a0000000-0000-0000-0000-000000000002');
   insert into public.purchases (supplier_id, supplier_invoice_no) values (t.fx('supplier'), 'INV-CONC-1') returning id into pur;
   insert into public.purchase_items (purchase_id, variant_id, quantity, unit_cost) values (pur, t.fx('v_published'), 6, 50000) returning id into pi;
   perform public.receive_purchase('conc-setup-recv', pur, (select jsonb_agg(jsonb_build_object('purchase_item_id', pi, 'imei1', t.imei(7000 + g))) from generate_series(1, 6) g));
@@ -107,7 +107,7 @@ commit;
 SQL
 }
 OWNER='a0000000-0000-0000-0000-000000000001'
-INV='a0000000-0000-0000-0000-000000000004'
+INV='a0000000-0000-0000-0000-000000000002'
 VC=$("${PSQL[@]}" -c "select t.fx('v_case')")
 
 # E: two sellers each ask for most of an accessory SKU's stock at once; only one may get it.
@@ -124,11 +124,11 @@ record "concurrent accessory sales: exactly one gets the stock" "$([[ "$EWIN" ==
 record "the losing accessory sale is told stock is insufficient" "$(cat "$WORK/e1.err" "$WORK/e2.err" | grep -q 'insufficient stock' && echo true || echo false)" "$(cat "$WORK/e1.err" "$WORK/e2.err" | head -c 300)"
 record "accessory stock is never oversold or negative after the race" "$([[ "$AFTER" == 1 ]] && echo true || echo false)" "before=$ONHAND after=$AFTER"
 
-# F: one discount approval used by two sales at once; it can be consumed only once.
+# F: one Admin-granted discount approval used by two sales at once; it can be consumed only once.
 APPR=$("${PSQL[@]}" <<SQL
 begin;
 set local role authenticated;
-select set_config('request.jwt.claims', '{"sub":"$MGR","role":"authenticated"}', true);
+select set_config('request.jwt.claims', '{"sub":"$OWNER","role":"authenticated"}', true);
 select (public.grant_discount_approval('conc-f-grant-01', '$SALES', 3000, 'Concurrency test approval', 30) ->> 'approval_id');
 commit;
 SQL

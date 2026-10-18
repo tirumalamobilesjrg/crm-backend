@@ -6,36 +6,35 @@ grant select on t.fixtures to public;
 create function t.fx(p_k text) returns uuid language sql stable as $$ select id from t.fixtures where k = p_k $$;
 grant execute on function t.fx(text) to public;
 
+-- Identities (two roles only):
+--   a1 Admin   a2 Manager   a3 Manager B   a6 deactivated Manager
+--   a4, a5     accounts that used to hold removed roles and now have NO staff profile
+--   a7         signed-up user with no staff profile
 insert into auth.users (id, email) values
-  ('a0000000-0000-0000-0000-000000000001', 'owner@example.test'),
+  ('a0000000-0000-0000-0000-000000000001', 'admin@example.test'),
   ('a0000000-0000-0000-0000-000000000002', 'manager@example.test'),
-  ('a0000000-0000-0000-0000-000000000003', 'sales@example.test'),
-  ('a0000000-0000-0000-0000-000000000004', 'inventory@example.test'),
-  ('a0000000-0000-0000-0000-000000000005', 'accountant@example.test'),
+  ('a0000000-0000-0000-0000-000000000003', 'manager-b@example.test'),
+  ('a0000000-0000-0000-0000-000000000004', 'former-inventory@example.test'),
+  ('a0000000-0000-0000-0000-000000000005', 'former-accountant@example.test'),
   ('a0000000-0000-0000-0000-000000000006', 'inactive@example.test'),
-  ('a0000000-0000-0000-0000-000000000007', 'nostaff@example.test'),
-  ('a0000000-0000-0000-0000-000000000008', 'sales2@example.test');
+  ('a0000000-0000-0000-0000-000000000007', 'nostaff@example.test');
 
 insert into public.staff_profiles (user_id, full_name, role, is_active) values
-  ('a0000000-0000-0000-0000-000000000001', 'Test Owner', 'owner', true),
+  ('a0000000-0000-0000-0000-000000000001', 'Test Admin', 'admin', true),
   ('a0000000-0000-0000-0000-000000000002', 'Test Manager', 'manager', true),
-  ('a0000000-0000-0000-0000-000000000003', 'Test Sales', 'sales_executive', true),
-  ('a0000000-0000-0000-0000-000000000004', 'Test Inventory', 'inventory_executive', true),
-  ('a0000000-0000-0000-0000-000000000005', 'Test Accountant', 'accountant', true),
-  ('a0000000-0000-0000-0000-000000000006', 'Test Inactive', 'sales_executive', false),
-  ('a0000000-0000-0000-0000-000000000008', 'Test Sales Two', 'sales_executive', true);
+  ('a0000000-0000-0000-0000-000000000003', 'Test Manager B', 'manager', true),
+  ('a0000000-0000-0000-0000-000000000006', 'Test Inactive Manager', 'manager', false);
 
 do $$
 declare
-  owner_ uuid := 'a0000000-0000-0000-0000-000000000001';
+  adm uuid := 'a0000000-0000-0000-0000-000000000001';
   mgr uuid := 'a0000000-0000-0000-0000-000000000002';
-  sales uuid := 'a0000000-0000-0000-0000-000000000003';
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  mgr2 uuid := 'a0000000-0000-0000-0000-000000000003';
   brand uuid; cat uuid; p1 uuid; p2 uuid; v1 uuid; v2 uuid; sup uuid; pur uuid; pi1 uuid; pi2 uuid;
   cust uuid; r jsonb; items uuid[]; s1 jsonb; s2 jsonb; hidden_item uuid; p3 uuid; v3 uuid; pur2 uuid; pi3 uuid;
 begin
-  -- catalogue, created by the inventory executive (cannot publish)
-  perform t.as_user(inv);
+  -- catalogue, purchasing and receiving by a Manager
+  perform t.as_user(mgr);
   insert into public.brands (name, slug) values ('TestBrand', 'testbrand') returning id into brand;
   insert into public.categories (name, slug) values ('Smartphones', 'smartphones') returning id into cat;
   insert into public.products (brand_id, category_id, name, slug, description)
@@ -77,40 +76,52 @@ begin
   r := public.receive_purchase('fixture-receive-2', pur2, '[]');
   perform t.eq((r ->> 'quantity_units_received')::int, 50, 'receive_purchase adds the ordered quantity of an accessory SKU');
 
-  -- publication by manager
-  perform t.as_user(mgr);
+  -- a Manager publishes and sets the approved public price
   update public.products set is_published = true where id = p1;
   update public.product_variants set public_price = 69999 where id = v1;
 
-  -- customer + sales
-  perform t.as_user(sales);
+  -- ===== default discount policy: a Manager has NO allowance of their own until an Admin configures one
+  perform t.reset();
+  perform t.ok((select not can_discount and max_percent = 0 and max_amount is null and not can_approve and configured_at is null
+                  from public.discount_policies where role = 'manager'), 'default: Manager discount policy grants no allowance and is marked unreviewed');
+  perform t.ok((select can_discount and can_approve and configured_at is null from public.discount_policies where role = 'admin'), 'default: Admin may discount and approve');
+  perform t.as_user(mgr2);
   insert into public.customers (name, phone) values ('Test Customer', '+919876543210') returning id into cust;
-
   select array_agg(id order by imei1) into items from public.inventory_items where variant_id = v1;
+  perform t.throws(format($q$select public.finalize_sale('fixture-default-1', %L, %L::jsonb, %L::jsonb, null, 'Please')$q$, cust,
+       jsonb_build_array(jsonb_build_object('inventory_item_id', items[1], 'unit_price', 70000, 'discount_amount', 1))::text,
+       jsonb_build_object('method', 'upi', 'amount', 69999)::text), 'TM005', 'default: even a 1 rupee Manager discount is refused until an Admin configures the policy');
+  -- the Admin configures the Manager policy: 10 % per line, no per-sale cap, no approval right
+  perform t.as_user(adm);
+  update public.discount_policies set can_discount = true, max_percent = 10, max_amount = null where role = 'manager';
+  perform t.reset();
+  perform t.ok((select configured_by = adm and configured_at is not null from public.discount_policies where role = 'manager'),
+               'saving the policy through the API records which Admin configured it and when');
+
+  -- sales
+  perform t.as_user(mgr2);
   r := public.finalize_sale('fixture-sale-1', cust,
     jsonb_build_array(jsonb_build_object('inventory_item_id', items[1], 'unit_price', 70000, 'discount_amount', 1000)),
     jsonb_build_object('method', 'upi', 'amount', 69000, 'reference', 'UPI-REF-1'), null, 'Regular customer');
   s1 := r;
 
   perform t.as_user(mgr);
-  -- mixed cart: one phone + two cases; 5000 discount is 7.1% of the phone, within a manager's 20%
+  -- mixed cart: one phone + two cases; 5000 discount is 7.1% of the phone, within the 10% the Admin configured for Managers
   r := public.finalize_sale('fixture-sale-2', null,
     jsonb_build_array(jsonb_build_object('inventory_item_id', items[2], 'unit_price', 70000, 'discount_amount', 5000),
                       jsonb_build_object('variant_id', v3, 'quantity', 2, 'unit_price', 799)),
     jsonb_build_object('method', 'cash', 'amount', 66598), null, 'Bulk buyer');
   s2 := r;
 
-  -- a discount approval (manager -> second sales executive) and an identifier correction for the matrix tests
-  perform t.as_user(mgr);
-  perform public.grant_discount_approval('fixture-appr-1', 'a0000000-0000-0000-0000-000000000008', 5000, 'Loyal customer', 60);
-  perform t.as_user(owner_);
+  -- a discount approval (Admin -> Manager B) and an identifier correction for the matrix tests
+  perform t.as_user(adm);
+  perform public.grant_discount_approval('fixture-appr-1', mgr2, 5000, 'Loyal customer', 60);
   perform public.correct_item_identifiers('fixture-corr-1', items[3], jsonb_build_object('imei2', t.imei(103)),
                                           'Second IMEI was missed at goods receipt');
 
   -- one expense, and one damaged device (the unpublished product's unit)
-  perform t.as_user('a0000000-0000-0000-0000-000000000005');
+  perform t.as_user(mgr);
   insert into public.expenses (category, description, amount, paid_via) values ('Electricity', 'Shop bill', 4500, 'upi');
-  perform t.as_user(inv);
   select id into hidden_item from public.inventory_items where variant_id = v2;
   perform public.adjust_stock('fixture-adjust-1', hidden_item, 'damaged', 'Screen cracked on receipt');
 

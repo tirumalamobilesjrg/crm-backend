@@ -1,7 +1,7 @@
 -- IMEI / serial uniqueness and device identity rules.
 do $$
 declare
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
   sup uuid := t.fx('supplier');
   v1 uuid := t.fx('v_published');
   v2 uuid := t.fx('v_hidden');

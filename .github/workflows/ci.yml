@@ -38,6 +38,8 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
       - name: Apply migrations to a clean database and run all tests
         run: scripts/test-db.sh
+      - name: Role migration (five roles -> Admin/Manager) against legacy data
+        run: tests/upgrade/role_migration.sh
 
   backup-drill:
     name: Backup and restore drill (scratch database)
@@ -72,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck scripts/*.sh tests/db/concurrency.sh
+      - run: shellcheck scripts/*.sh tests/db/concurrency.sh tests/upgrade/role_migration.sh
 
   supabase-local:
     name: Tests against the real local Supabase stack

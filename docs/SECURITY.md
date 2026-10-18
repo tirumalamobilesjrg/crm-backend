@@ -12,47 +12,68 @@
 4. **Secrets:** the service-role key bypasses RLS and is never needed by browser code. `.env.example` documents
    names only; `.gitignore` excludes `.env*`, `*.age`, keys and backups.
 
-## Roles (one per user, `staff_profiles.role`)
+## Roles (exactly two: `admin`, `manager`; one per user, `staff_profiles.role`)
 
-Legend: **R** read all, **r** read own only, **W** direct write, **F** via function only, **–** no access.
+The `staff_role` enum has only these two values; the removed roles (owner, sales_executive, inventory_executive,
+accountant) are not valid anywhere (`22P02`). The role is looked up from `staff_profiles` by `app.current_staff_role()`
+on every request - never from a JWT claim.
 
-| Data | owner | manager | sales_executive | inventory_executive | accountant | anon |
-|---|---|---|---|---|---|---|
-| shop_settings | R, W | R | R | R | R | – |
-| staff_profiles | R, W | R | r | r | r | – |
-| audit_logs | R | R | – | – | – | – |
-| brands, categories, products, variants, specs, images | R, W | R, W | R | R, W | R | – |
-| Publish product / set public price | yes | yes | no | no | no | – |
-| suppliers, purchases (draft), purchase_items | R, W | R, W | – | R, W | R | – |
-| Receive purchase (`receive_purchase`) | F | F | – | F | – | – |
-| inventory_items (IMEI, status, no cost), stock_levels | R | R | R | R | R | – |
-| inventory_item_costs, stock_movements, stock_adjustments | R | R | – | R | R | – |
-| Adjust stock (`adjust_stock`, `adjust_quantity_stock`) | F | F | – | F | – | – |
-| Correct IMEI/serial (`correct_item_identifiers`) | F | F | – | – | – | – |
-| inventory_identifier_corrections (history) | R | R | – | R | R | – |
-| customers | R, W | R, W | R, W | – | R | – |
-| sales, sale_items, invoices, invoice_items, payments | R | R | r (own sales) | – | R | – |
-| Sell (`finalize_sale`) | F | F | F | – | – | – |
-| discount_policies (limits) | R, W | R | R | R | R | – |
-| Grant discount approval (`grant_discount_approval`) | F (if `can_approve`) | F (if `can_approve`) | – | – | – | – |
-| discount_approvals | R | R | r (own) | r (own) | R | – |
-| expenses | R, W | R, W | – | – | R, W | – |
-| public_catalogue_* views | R | R | R | R | R | **R** |
-| idempotency_keys, inventory_identifiers, invoice_sequences | – (internal) | | | | | |
+Legend: **R** read, **W** direct write (RLS-checked), **F** via database function only, **-** no access.
 
-Deactivated staff and authenticated users without a profile have no access to anything (`app.current_staff_role()`
-returns NULL). Master data (catalogue, suppliers, draft purchases) can be deleted by the roles that may write it,
-but foreign keys are `ON DELETE RESTRICT`, so anything referenced by a device, purchase or sale cannot be removed;
-customers and expenses are deletable only by the owner (customers referenced by sales/invoices are protected by the
-same FKs); staff are deactivated, never deleted; discount policies cannot be deleted. The last active owner cannot be
-demoted or deactivated.
+| Data / action | Admin | Manager | anon |
+|---|---|---|---|
+| staff_profiles (accounts, roles, activation) | R, W | R | - |
+| shop_settings | R, W | R | - |
+| discount_policies (limits) | R, W | R | - |
+| Grant discount approval (`grant_discount_approval`) | F | **denied** (`42501`, and a constraint forbids `can_approve` on Manager) | - |
+| discount_approvals | R all | R own (granted to / by them) | - |
+| audit_logs | R | **-** | - |
+| brands, categories, products, variants, specs, images (incl. publishing, `public_price`) | R, W | R, W | - |
+| suppliers, purchases (draft), purchase_items | R, W | R, W | - |
+| Receive purchase (`receive_purchase`) | F | F | - |
+| inventory_items, stock_levels, inventory_item_costs, stock_movements, stock_adjustments | R | R | - |
+| Adjust stock (`adjust_stock`, `adjust_quantity_stock`) | F | F | - |
+| Correct IMEI/serial (`correct_item_identifiers`), history table | F, R | F, R | - |
+| customers | R, W, delete | R, W | - |
+| sales, sale_items, invoices, invoice_items, payments | R | R | - |
+| Sell (`finalize_sale`) | F | F | - |
+| expenses | R, W, delete | R, W | - |
+| public_catalogue_* views | R | R | **R** |
+| idempotency_keys, inventory_identifiers, invoice_sequences | - (internal) | - | - |
 
-What the discount cells mean: *whether* a user may discount, *how much*, and *who may approve more* is data in
-`discount_policies`, editable only by the owner and audited; the sale function reads it on every sale. Nothing about
-5 %, 20 % or any other number is hardcoded in functions or policies.
+Deactivated staff, users without a profile, and accounts that used to hold a removed role but have no profile now
+have no access to anything (`app.current_staff_role()` returns NULL; every RPC raises `42501`). Master data can be deleted
+by the roles that may write it, but foreign keys are `ON DELETE RESTRICT`, so anything referenced by a device, purchase
+or sale cannot be removed; staff are deactivated, never deleted; discount policies cannot be deleted. **The last active
+Admin cannot be demoted or deactivated** (`TM011`).
 
-These cells are asserted in `tests/db/02_rls_read_matrix.test.sql` (reads, all roles x all tables) and
-`tests/db/03_write_permissions.test.sql` (writes and RPC access).
+Three layers protect Admin-only actions: the RLS policy (Manager sees zero updatable rows or gets `42501` on insert),
+a `BEFORE INSERT/UPDATE` trigger on `staff_profiles` that refuses any non-Admin session (`42501`), and for discount
+approvals a check inside the function plus a table constraint. Mutation tests confirm that loosening only one of
+the first two does not open the hole.
+
+### Discount policy
+
+`discount_policies` has one row per role. Columns: `can_discount`, `max_percent` (per line), `max_amount` (per sale,
+NULL = no cap), `can_approve` (Admin only), `configured_by/at` (stamped when an Admin saves it through the API).
+- Only an Admin can change it (audited with old and new values).
+- **A Manager has no allowance until an Admin sets one.** The seeded Manager row is `can_discount=false, 0 %`,
+  `configured_at IS NULL` ("never reviewed"). Every Manager discount then needs an Admin approval. There is no
+  assumed final percentage, and unlimited Manager discounts are never enabled by default.
+- The Admin row defaults to 100 % / no cap / may approve; that is also just configuration the Admin can tighten.
+- An approval is single-use, expires (1-120 minutes), is capped, is bound to one seller and is re-validated at use
+  (approver still an active Admin whose own per-line limit and cap still cover the discount).
+
+### Reports (not built yet - rule for when they are)
+
+Admin sees all business reports; Manager sees operational ones (sales, payments, stock, purchase cost, expenses,
+customers) as already granted by the read policies above. Reports must be built as SECURITY INVOKER views or functions
+that check `app.has_any_role(...)`, must not expose the audit log, staff, or policy tables to a Manager, and must be added to
+`tests/db/02_rls_read_matrix.test.sql`.
+
+These cells are asserted in `tests/db/02_rls_read_matrix.test.sql` (reads, all identities x all tables),
+`tests/db/03_write_permissions.test.sql` and `tests/db/14_two_role_model.test.sql` (writes, RPC access, Admin-only powers,
+removed roles, audit of sensitive actions by both roles).
 
 ## Money-handling controls (Task 1B)
 
@@ -76,14 +97,14 @@ that is intentional.
 
 ## Known gaps and risks (be aware before go-live)
 
-- Authentication hardening (MFA for owner/manager, password policy, email provider) is a Supabase dashboard
+- Authentication hardening (MFA for Admin and Manager accounts, password policy, email provider) is a Supabase dashboard
   configuration, not code here. Not verified.
 - Image storage bucket policies (Supabase Storage) are not defined yet; `product_images.storage_path` is metadata only.
 - Rate limiting of the anon key is Supabase's platform behaviour; the catalogue views are cheap but unthrottled here.
 - A user with the database password or the service-role key can still do anything; keep both out of repos and browsers.
-- `audit_logs` can contain customer PII (before/after images of `customers`); only owner/manager can read it.
+- `audit_logs` can contain customer PII (before/after images of `customers`); only an Admin can read it.
 - `audit_logs` and `inventory_identifier_corrections` hold before/after values; both are append-only for every role,
   including the table owner, but a superuser can still disable triggers - treat database-superuser access as
   equivalent to full control.
-- Discount approvals are only as trustworthy as the approver's account: protect owner/manager logins (MFA is a
+- Discount approvals are only as trustworthy as the approver's account: protect Admin logins (Manager logins matter less here: only an Admin can approve) (MFA is a
   dashboard setting, unverified).

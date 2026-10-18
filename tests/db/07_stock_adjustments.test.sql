@@ -1,7 +1,7 @@
 -- Stock adjustments: allowed transitions only, always paired with a movement and audit record.
 do $$
 declare
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
   sales uuid := 'a0000000-0000-0000-0000-000000000003';
   hidden uuid := t.fx('item_hidden');   -- damaged in the fixtures
   sold1 uuid := t.fx('item_sold_1');

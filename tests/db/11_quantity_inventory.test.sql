@@ -1,7 +1,7 @@
 -- SKU-level quantity inventory for accessories: receiving, selling, adjusting, overselling, ledger invariants.
 do $$
 declare
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
   sales uuid := 'a0000000-0000-0000-0000-000000000003';
   mgr uuid := 'a0000000-0000-0000-0000-000000000002';
   p3 uuid := t.fx('p_case');

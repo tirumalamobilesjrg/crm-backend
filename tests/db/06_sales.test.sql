@@ -3,7 +3,7 @@ do $$
 declare
   mgr uuid := 'a0000000-0000-0000-0000-000000000002';
   sales uuid := 'a0000000-0000-0000-0000-000000000003';
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
   v1 uuid := t.fx('v_published');
   fy text := app.fiscal_year(now());
   hidden uuid := t.fx('item_hidden');
@@ -34,8 +34,8 @@ begin
   perform t.eq((select count(*) from public.stock_movements where sale_id = t.fx('sale_by_manager')), 2::bigint, 'one movement per sale line (device + accessory)');
   perform t.ok(exists (select 1 from public.stock_movements where sale_id = t.fx('sale_by_manager') and quantity_delta = -2 and balance_after = 48),
                'accessory sale movement is -2 with balance 48');
-  perform t.ok(exists (select 1 from public.audit_logs where action = 'sale.finalized' and record_id = t.fx('sale_by_sales')::text and actor_role = 'sales_executive'),
-               'sale audit record names the acting role');
+  perform t.ok(exists (select 1 from public.audit_logs where action = 'sale.finalized' and record_id = t.fx('sale_by_sales')::text and actor_role = 'manager'),
+               'sale audit record names the acting role (manager)');
 
   -- more stock to play with
   perform t.as_user(inv);
@@ -107,7 +107,7 @@ begin
   perform t.throws(format($q$select public.finalize_sale('pos-validate-12', null, %L::jsonb, %L::jsonb)$q$,
       jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'quantity', 3, 'unit_price', 1000))::text, '{"method":"cash","amount":3000}'), 'quantity 1', 'a serialized device cannot be sold with quantity 3');
 
-  -- ===== a plain sale (no discount) by the sales executive and by the manager
+  -- ===== a plain sale (no discount) by Manager B and by Manager A
   r := public.finalize_sale('pos-plain-0001', null,
       jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000)),
       '{"method":"cash","amount":70000}');

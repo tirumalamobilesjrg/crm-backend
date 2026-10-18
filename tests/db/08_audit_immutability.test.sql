@@ -1,10 +1,10 @@
 -- Audit trail and append-only guarantees (checked as the database owner, i.e. even trusted code cannot rewrite history).
 do $$
 declare
-  owner_ uuid := 'a0000000-0000-0000-0000-000000000001';
+  adm uuid := 'a0000000-0000-0000-0000-000000000001';
   mgr uuid := 'a0000000-0000-0000-0000-000000000002';
   sales uuid := 'a0000000-0000-0000-0000-000000000003';
-  acct uuid := 'a0000000-0000-0000-0000-000000000005';
+  acct uuid := 'a0000000-0000-0000-0000-000000000002';   -- the Manager who recorded the fixture expense
   p1 uuid := t.fx('p_published');
 begin
   perform t.reset();
@@ -37,9 +37,9 @@ begin
   perform t.ok((select count(*) from public.audit_logs where action = 'sale.finalized') = (select count(*) from public.sales), 'every sale has exactly one finalisation audit record');
 
   -- audit visibility
-  perform t.as_user(owner_);
-  perform t.ok((select count(*) from public.audit_logs) > 0, 'owner can read the audit log');
+  perform t.as_user(adm);
+  perform t.ok((select count(*) from public.audit_logs) > 0, 'Admin can read the audit log');
   perform t.as_user(sales);
-  perform t.eq((select count(*) from public.audit_logs), 0::bigint, 'sales executive cannot read the audit log');
+  perform t.eq((select count(*) from public.audit_logs), 0::bigint, 'a Manager cannot read the audit log');
   perform t.reset();
 end $$;

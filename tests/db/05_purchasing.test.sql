@@ -1,8 +1,8 @@
 -- Purchase receipt: happy path, replay, rollback, and frozen state.
 do $$
 declare
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
-  mgr uuid := 'a0000000-0000-0000-0000-000000000002';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
+  mgr uuid := 'a0000000-0000-0000-0000-000000000003';
   sup uuid := t.fx('supplier');
   v1 uuid := t.fx('v_published');
   pur uuid; pi uuid; r jsonb; r2 jsonb; item uuid;
@@ -16,7 +16,7 @@ begin
                1::bigint, 'accessory receipt is one signed movement with the resulting balance');
   perform t.eq((select count(*) from public.inventory_item_costs where cost_price = 50000), 3::bigint, 'acquisition cost recorded per device');
   perform t.eq((select status::text from public.purchases where id = t.fx('purchase')), 'received', 'purchase is marked received');
-  perform t.ok((select received_at is not null and received_by = 'a0000000-0000-0000-0000-000000000004' from public.purchases where id = t.fx('purchase')),
+  perform t.ok((select received_at is not null and received_by = 'a0000000-0000-0000-0000-000000000002' from public.purchases where id = t.fx('purchase')),
                'receipt time and actor recorded');
 
   -- draft rules

@@ -14,12 +14,13 @@ environment. The anon key and project URL are public by design. **Never** put th
 - Add a new file `supabase/migrations/<UTC timestamp>_<name>.sql`; never edit one that has been applied to a real project.
 - Every new table needs: RLS enabled, explicit grants, policies, and entries in the test matrix
   (`tests/db/01` and `02`). The suite fails if a table is missing RLS.
-- Procedure for the hosted project (manual, by the owner; **not yet performed**):
+- Procedure for the hosted project (manual, by an Admin / the project owner; **not yet performed**):
   1. `scripts/test-db.sh` passes locally and CI is green.
   2. Take a backup (section 3) before every production migration.
   3. `supabase link --project-ref $SUPABASE_PROJECT_REF`
   4. `supabase db push --dry-run`, review the SQL, then `supabase db push`.
-  5. Smoke test with the owner account.
+  5. Smoke test with the Admin account.
+  If the target database still has the five-role model, read docs/ROLE_MIGRATION.md first: migration 0019 refuses to run until unsupported roles are resolved by a human.
 - There is deliberately no CI job that pushes to production.
 
 ## 3. Encrypted backups
@@ -74,10 +75,13 @@ Disaster recovery (production lost):
 5. Staff logins: `auth.users`/`identities` are restored; if password hashes do not work in the new project, reset passwords.
 Recovery point objective = time since the last backup; there is no point-in-time recovery on the free plan.
 
-## 5. First owner account
+## 5. First Admin account
 
 Done once by the project owner in the Supabase dashboard / SQL editor (not in code):
-1. Create the user in Authentication → Users.
-2. Run `insert into public.staff_profiles (user_id, full_name, role) values ('<auth user uuid>', '<name>', 'owner');`
-Further staff are added by the owner through the CRM (insert into `staff_profiles`) after creating their auth users.
-Sign-ups are disabled in `config.toml`; make sure the hosted project's Auth settings match (**manual, unverified**).
+1. Create the user in Authentication -> Users.
+2. Run `insert into public.staff_profiles (user_id, full_name, role) values ('<auth user uuid>', '<name>', 'admin');`
+3. As that Admin, open the discount policy and **set the Manager limits** (until you do, Managers have no discount
+   allowance and every discount needs an Admin approval).
+Further staff are created by an Admin through the CRM (insert into `staff_profiles` with role `admin` or `manager`) after
+their auth users exist. Managers cannot create or promote accounts. Sign-ups are disabled in `config.toml`; make sure
+the hosted project's Auth settings match (**manual, unverified**).

@@ -2,7 +2,7 @@
 do $$
 declare
   sales uuid := 'a0000000-0000-0000-0000-000000000003';
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  inv uuid := 'a0000000-0000-0000-0000-000000000002';
   item uuid; items jsonb; pur uuid; pi uuid;
 begin
   -- a fresh device to try (and fail) to sell

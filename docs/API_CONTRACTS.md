@@ -28,7 +28,8 @@ button press) and **reuse it on retries**.
 
 | Code | Meaning |
 |---|---|
-| `42501` | not permitted (no profile, inactive, wrong role, no privilege) |
+| `42501` | not permitted (no staff profile, deactivated, role not allowed, no privilege) |
+| `22P02` | also returned when a removed role name is supplied for `staff_role` |
 | `TM002` | idempotency key reused with different arguments |
 | `TM003` | invalid request (shape, missing field, bad value) |
 | `TM004` | device unavailable / insufficient stock / invalid stock transition |
@@ -36,14 +37,15 @@ button press) and **reuse it on retries**.
 | `TM006` | payment amount does not equal the sale total |
 | `TM007` | purchase in the wrong state |
 | `TM010` | row is append-only / protected from direct change |
-| `TM011` | cannot remove the last active owner |
+| `TM011` | cannot demote or deactivate the last active Admin |
 | `TM012` | commit-time integrity check failed (incomplete sale or device) |
 | `TM013` | wrong SKU tracking mode |
+| `TM020` | (migration only) unsupported legacy staff roles - see ROLE_MIGRATION.md |
 | `23505` | duplicate (IMEI/serial, customer phone, supplier invoice, invoice number…) |
 | `23514` | check constraint (bad IMEI check digit, negative amount, …) |
 | `22P02` | malformed UUID / enum / number |
 
-## `rpc/finalize_sale` — roles: owner, manager, sales_executive
+## `rpc/finalize_sale` — roles: Admin, Manager
 
 ```
 p_idempotency_key text
@@ -72,7 +74,7 @@ role's discount policy or the supplied approval; inserts `sales`, `sale_items`, 
 `invoice_items`, one `payments` row, one `stock_movements` row per line, one audit entry; marks the approval used.
 Commit-time triggers re-verify completeness. Error cases: `42501`, `TM002`, `TM003`, `TM004`, `TM005`, `TM006`, `TM013`.
 
-## `rpc/receive_purchase` — owner, manager, inventory_executive
+## `rpc/receive_purchase` — Admin, Manager
 
 ```
 p_idempotency_key text, p_purchase_id uuid, p_units jsonb array
@@ -83,7 +85,7 @@ Quantity SKU lines take **no** units (use `[]` for accessory-only purchases) and
 Returns `{"purchase_id","units_received","quantity_lines_received","quantity_units_received","replayed"}`.
 Errors: `TM003` (wrong unit counts, foreign line), `TM007` (not a draft / no lines), `23505` (duplicate IMEI/serial), `23514` (bad IMEI).
 
-## `rpc/adjust_stock` — owner, manager, inventory_executive (serialized devices)
+## `rpc/adjust_stock` — Admin, Manager (serialized devices)
 
 ```
 p_idempotency_key text, p_inventory_item_id uuid, p_reason 'damaged'|'lost'|'found'|'repaired'|'returned_to_supplier', p_notes text (>= 3)
@@ -91,7 +93,7 @@ p_idempotency_key text, p_inventory_item_id uuid, p_reason 'damaged'|'lost'|'fou
 Allowed: in_stock → damaged|lost|returned_to_supplier; damaged → in_stock (`repaired`)|returned_to_supplier; lost → in_stock (`found`).
 Sold devices and `returned_to_supplier` are terminal here. Returns `{"adjustment_id","from_status","to_status","replayed"}`. Errors: `TM003`, `TM004`.
 
-## `rpc/adjust_quantity_stock` — owner, manager, inventory_executive (accessory SKUs)
+## `rpc/adjust_quantity_stock` — Admin, Manager (accessory SKUs)
 
 ```
 p_idempotency_key text, p_variant_id uuid, p_quantity_delta int (non-zero), p_reason adjustment_reason, p_notes text (>= 3)
@@ -99,18 +101,20 @@ p_idempotency_key text, p_variant_id uuid, p_quantity_delta int (non-zero), p_re
 Sign rules: `damaged`/`lost`/`returned_to_supplier` negative; `found` positive; `correction` either; `repaired` not allowed.
 Never drives stock below zero (`TM004`). Returns `{"adjustment_id","balance_after","replayed"}`.
 
-## `rpc/grant_discount_approval` — roles with `discount_policies.can_approve` (owner, manager by default)
+## `rpc/grant_discount_approval` — Admin only
 
 ```
 p_idempotency_key text, p_requested_for uuid, p_max_amount numeric (> 0, total discount cap for the sale),
 p_reason text (>= 3), p_valid_minutes int default 15 (1..120)
 ```
-The target must be an active staff member whose role may discount; self-approval is refused; the amount may not
-exceed the approver's own per-sale cap. At use time the approval is checked again: right seller, unused, unexpired,
+The caller must be an Admin whose policy has `can_approve` (a Manager is refused with `42501`, and the database
+forbids `can_approve` on the Manager policy). The target must be an active staff member (an Admin or a Manager) - it
+does **not** need its own discount allowance, which is exactly when approvals matter; self-approval is refused; the
+amount may not exceed the approver's own per-sale cap. At use time the approval is checked again: right seller, unused, unexpired,
 discount ≤ `max_amount`, approver still active and authorised, and each line within the approver's per-line percent.
 Returns `{"approval_id","expires_at","replayed"}`.
 
-## `rpc/correct_item_identifiers` — owner, manager
+## `rpc/correct_item_identifiers` — Admin, Manager
 
 ```
 p_idempotency_key text, p_inventory_item_id uuid, p_changes jsonb, p_reason text (>= 10)
@@ -125,12 +129,24 @@ Returns `{"correction_id","inventory_item_id","replayed"}`.
 
 | Resource | Read | Write |
 |---|---|---|
-| brands, categories, products, product_variants, specifications, images | all active staff | owner, manager, inventory_executive (publishing a product or setting `public_price`: owner, manager only) |
-| suppliers, purchases, purchase_items | owner, manager, inventory, accountant | owner, manager, inventory — drafts only; `status` may go draft → cancelled; receiving only via RPC |
-| customers | owner, manager, sales, accountant | insert/update: owner, manager, sales; delete: owner |
-| expenses | owner, manager, accountant | owner, manager, accountant; delete: owner |
-| discount_policies | all active staff | owner |
-| discount_approvals, stock_levels, inventory_items, stock_movements, stock_adjustments, sales, sale_items, invoices, invoice_items, payments, inventory_item_costs, audit_logs, inventory_identifier_corrections | see SECURITY.md | **never directly** |
+| staff_profiles | Admin, Manager (all rows) | **Admin only**: insert (create account), update (`role` in `admin`/`manager`, `is_active`, name). The last active Admin cannot be demoted/deactivated (`TM011`). A Manager's attempt returns `42501` (insert) or affects 0 rows (update). Removed role names fail with `22P02`. Rows are never deleted. |
+| shop_settings | Admin, Manager | **Admin only** (update the single row) |
+| discount_policies | Admin, Manager | **Admin only** (update; one row per role; `can_approve` only on `admin`) |
+| brands, categories, products, product_variants, specifications, images | Admin, Manager | Admin, Manager (publishing a product and setting `public_price` included) |
+| suppliers, purchases, purchase_items | Admin, Manager | Admin, Manager - drafts only; `status` may go draft -> cancelled; receiving only via RPC |
+| customers | Admin, Manager | insert/update: Admin, Manager; delete: **Admin** |
+| expenses | Admin, Manager | insert/update: Admin, Manager; delete: **Admin** |
+| audit_logs | **Admin only** | never directly |
+| discount_approvals | Admin: all; Manager: those granted to or by them | never directly |
+| stock_levels, inventory_items, inventory_item_costs, stock_movements, stock_adjustments, inventory_identifier_corrections, sales, sale_items, invoices, invoice_items, payments | Admin, Manager | **never directly** |
+
+Staff management example (Admin session):
+```http
+POST /rest/v1/staff_profiles     {"user_id": "<auth user uuid>", "full_name": "A. Kumar", "role": "manager"}
+PATCH /rest/v1/staff_profiles?user_id=eq.<uuid>    {"role": "admin"}      {"is_active": false}
+PATCH /rest/v1/discount_policies?role=eq.manager   {"can_discount": true, "max_percent": 10, "max_amount": 5000}
+```
+The auth user must exist first (created in Supabase Auth); self sign-up is disabled.
 
 Creating a quantity SKU: insert into `product_variants` with `"tracking_mode": "quantity"` (default `serialized`).
 

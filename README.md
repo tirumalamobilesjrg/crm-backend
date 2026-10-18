@@ -13,7 +13,7 @@ The other two repositories only consume it.
 
 ## Status
 
-Tasks 1 and 1B (foundation + finalized shop rules). There is no application server: clients talk to Supabase's Data
+Tasks 1, 1B and the two-role simplification (foundation + finalized shop rules + Admin/Manager). There is no application server: clients talk to Supabase's Data
 API (PostgREST) and call database functions for the operations that must be transactional. Not yet built: the CRM
 UI, the website, returns/voids/refunds, image storage policies. Out of scope by decision: GST/tax, online
 payments, split payments, credit/EMI.
@@ -30,16 +30,28 @@ accessories. A serialized variant has one **inventory item** per physical device
 number. Both change only by appending to the `stock_movements` ledger. Acquisition cost of devices lives in a
 separate table (`inventory_item_costs`) so it can have stricter access than the device record.
 
+## Roles (exactly two)
+
+| Role | Can |
+|---|---|
+| **Admin** | Everything a Manager can, plus: create staff accounts and assign roles, change shop settings, configure discount policies (including the Manager's limits), approve exceptional discounts, read the audit log, delete customers and expenses. |
+| **Manager** | Manage and **publish** products, receive purchases, manage inventory and stock adjustments, perform audited IMEI corrections, create POS sales and invoices, manage customers, record expenses, read operational data (sales, stock, costs, expenses). Cannot create or promote staff, change roles, change discount policies, shop settings or other security settings, approve discounts, or read the audit log. |
+
+The removed roles (owner, sales executive, inventory executive, accountant) cannot be assigned or used.
+Migration from the five-role model: [docs/ROLE_MIGRATION.md](docs/ROLE_MIGRATION.md). Checks live in the database
+(RLS policies, triggers and function bodies), never only in the frontend.
+
 ## Write paths
 
 | Operation | How | Who |
 |---|---|---|
-| Catalogue, suppliers, draft purchases, customers, expenses, discount limits | direct table writes, RLS-checked | see [docs/SECURITY.md](docs/SECURITY.md) |
-| Receive a purchase (devices by IMEI/serial, accessories by quantity) | `rpc/receive_purchase` | owner, manager, inventory executive |
-| Adjust stock (device status / accessory quantity) | `rpc/adjust_stock`, `rpc/adjust_quantity_stock` | owner, manager, inventory executive |
-| Correct an IMEI/serial (audited, history kept) | `rpc/correct_item_identifiers` | owner, manager |
-| Sell (sale, invoice, one payment, movements, audit) | `rpc/finalize_sale` | owner, manager, sales executive |
-| Approve a discount above someone's limit | `rpc/grant_discount_approval` | roles with `can_approve` (owner, manager) |
+| Catalogue (incl. publishing), suppliers, draft purchases, customers, expenses | direct table writes, RLS-checked | Admin, Manager (deleting customers/expenses: Admin) |
+| Staff accounts and roles, shop settings, discount policy | direct table writes, RLS-checked | **Admin only** |
+| Receive a purchase (devices by IMEI/serial, accessories by quantity) | `rpc/receive_purchase` | Admin, Manager |
+| Adjust stock (device status / accessory quantity) | `rpc/adjust_stock`, `rpc/adjust_quantity_stock` | Admin, Manager |
+| Correct an IMEI/serial (audited, history kept) | `rpc/correct_item_identifiers` | Admin, Manager |
+| Sell (sale, invoice, one payment, movements, audit) | `rpc/finalize_sale` | Admin, Manager |
+| Approve a discount above someone's limit | `rpc/grant_discount_approval` | **Admin only** |
 
 All RPCs take an **idempotency key** (8-128 chars, generated once per user action by the client and reused on
 retry). Everything else that touches stock, sales, invoices, payments, approvals or audit logs is blocked at the
@@ -55,7 +67,9 @@ scripts/test-db.sh
 
 The script creates a fresh database, emulates the Supabase roles/auth schema, applies every migration, runs
 `tests/db/*.test.sql` and `tests/db/concurrency.sh`, and exits non-zero on any failed assertion.
-CI (`.github/workflows/ci.yml`) does the same on PostgreSQL 16 and 17 plus a backup/restore drill.
+`tests/upgrade/role_migration.sh` separately tests migration 0019 against legacy five-role data.
+CI (`.github/workflows/ci.yml`) is configured to run both on PostgreSQL 16 and 17 plus a backup/restore drill
+(it has not run yet: the repository has not been pushed).
 
 ## Environment variables
 
@@ -69,5 +83,6 @@ never be placed in browser code or in any `NEXT_PUBLIC_*` / `VITE_*` variable.**
 - [Schema decisions (decided and still open)](docs/SCHEMA_DECISIONS.md)
 - [API contracts](docs/API_CONTRACTS.md)
 - [Acceptance tests](docs/ACCEPTANCE_TESTS.md)
+- [Role migration (five roles to Admin/Manager)](docs/ROLE_MIGRATION.md)
 - [Testing and Supabase differences](docs/TESTING.md)
 - [Operations: migrations, backups, restore](docs/OPERATIONS.md)

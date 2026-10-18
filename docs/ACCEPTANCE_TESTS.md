@@ -21,17 +21,26 @@ Each business rule, the automated test(s) that prove it, and whether the proof i
 | **Tax** | | | |
 | T1 | No GST/tax columns or calculations anywhere | 01 `no GST/tax/HSN columns exist`; 06 totals `list price - discount = total` | verified |
 | **Discounts** | | | |
-| D1 | Limits are configurable data, not hardcoded | 10 `after the owner raises the limit to 10%…`, `per-sale amount cap`, `switched off for the role` | verified |
-| D2 | Server-side enforcement (frontend irrelevant) | 10 every `TM005` case; 03 `sales executive cannot raise their own discount limit`; DB constraint `sales_discount_record` test | verified |
+| D1 | Limits are configurable data, not hardcoded | 10 `after the Admin raises the limit to 15 %…`, `per-sale amount cap`, `switched off for Managers`, `Admin policy is configurable too` | verified |
+| D2 | Server-side enforcement (frontend irrelevant) | 10 every `TM005` case; 14 `manager cannot raise their own discount limit`; DB constraint `sales_discount_record` test | verified |
 | D3 | Amount, authorising user, basis, reason and approval recorded; audit history | 10 `discount within the limit records…`, `approved discount records the approver…`, audit assertions | verified |
 | D4 | Approvals: single-use, expiring, capped, bound to the seller, approver must still be authorised | 10 approval block; race F | verified |
 | D5 | No offers/discount banners or pages on the public site | 09 `catalogue views have no discount, offer, cost… columns`; `anon cannot read discount policies` | verified at the data layer (no website exists yet) |
 | **Public catalogue** | | | |
 | C1 | Only published fields + derived in/out-of-stock; accessories and phones | 01 exact column lists; 09 availability flips for both kinds | verified |
-| C2 | `public_price` explicitly approved, separate from costs/selling price, ≤ MRP | 09 `public price` block; 03 `inventory executive cannot change the public price` | verified |
+| C2 | `public_price` explicitly approved, separate from costs/selling price, ≤ MRP | 09 `public price` block; 09 `public price` block (approval stamp, <= MRP) | verified |
 | C3 | Never expose IMEIs, costs, margins, customers, internal finance | 01 `catalogue views read no cost, customer…`; 09 `no IMEI-looking value or cost field`; 02 anon denied everywhere else | verified |
+| **Roles** | | | |
+| R1 | Exactly two roles; removed roles cannot be assigned | 01 `staff_role has exactly the values admin and manager`; 14 loop: owner, sales_executive, inventory_executive, accountant, superuser, Admin all fail with `22P02` on profile update, insert, discount policy and cast | verified |
+| R2 | Admin can manage staff, roles, settings, discount policy, approvals, read audit | 14 `Admin can create a staff account` ... `Admin can read the audit log` | verified |
+| R3 | Manager cannot create/promote staff, change roles, policies, settings, approve discounts, read audit | 14 `manager cannot ...` (12 assertions); 03 `manager cannot grant discount approvals`; mutation checks | verified |
+| R4 | Manager can do operational work (products, publish, purchases, inventory, IMEI correction, POS, customers, expenses) | 03/14 positive cases; 05, 06, 11, 12 run as Managers | verified |
+| R5 | Removed-role accounts and unprofiled/deactivated users are denied everywhere | 03 loop over former holders, no-profile and inactive users x 6 RPCs; 02 columns `inactive`, `nostaff` | verified |
+| R6 | Sensitive actions by both roles are audited with actor and role | 14 `audit: ...` (12 assertions) | verified |
+| R7 | Role migration is safe: refuses unsupported roles, promotes nobody, keeps history | `tests/upgrade/role_migration.sh` S1-S5 (28 checks) | verified locally; not yet in a CI run |
+| R8 | Manager discount limits are configuration; unlimited Manager discounts are not the default | 00 `default: Manager discount policy grants no allowance`, `...even a 1 rupee Manager discount is refused`; 10 | verified |
 | **Access control** | | | |
-| A1 | RLS everywhere; deny by default; every role × table | 01, 02 (all roles × all tables, plus anon), 03 | verified (SQL level) |
+| A1 | RLS everywhere; deny by default; every identity × table | 01, 02 (Admin, Manager, second Manager, deactivated Manager, no-profile user x all tables, plus anon), 03 | verified (SQL level) |
 | A2 | Unauthorized RPC access refused | 03 `… cannot call …` for anon, no-profile, inactive, wrong role | verified |
 | A3 | Service-role key never needed in browsers | docs + `.env.example`; no code path requires it | process control, not testable here |
 | **Transactions** | | | |

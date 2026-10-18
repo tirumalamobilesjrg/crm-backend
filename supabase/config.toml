@@ -29,4 +29,4 @@ port = 54323
 [auth]
 enabled = true
 site_url = "http://127.0.0.1:3000"
-enable_signup = false           # staff accounts are created by the owner, never self-registered
+enable_signup = false           # staff accounts are created by an Admin, never self-registered

@@ -1,13 +1,14 @@
 -- Controlled IMEI/serial corrections: validation, duplicates, preserved history, audit, authority.
 do $$
 declare
-  owner_ uuid := 'a0000000-0000-0000-0000-000000000001';
+  adm uuid := 'a0000000-0000-0000-0000-000000000001';
   mgr uuid := 'a0000000-0000-0000-0000-000000000002';
-  inv uuid := 'a0000000-0000-0000-0000-000000000004';
+  stf uuid := 'a0000000-0000-0000-0000-000000000003';        -- Manager B, used for goods receipt
+  former uuid := 'a0000000-0000-0000-0000-000000000004';     -- account that used to hold a removed role; no profile
   v1 uuid := t.fx('v_published');
   pur uuid; pi uuid; d1 uuid; d2 uuid; d3 uuid; r jsonb; n_before bigint; c public.inventory_identifier_corrections;
 begin
-  perform t.as_user(inv);
+  perform t.as_user(stf);
   insert into public.purchases (supplier_id, supplier_invoice_no) values (t.fx('supplier'), 'INV-7001') returning id into pur;
   insert into public.purchase_items (purchase_id, variant_id, quantity, unit_cost) values (pur, v1, 3, 50000) returning id into pi;
   -- the first device was keyed with a typo (2001 instead of 2004)
@@ -21,10 +22,10 @@ begin
   select id into d3 from public.inventory_items where imei1 = t.imei(2003);
 
   -- ===== authority and input validation
-  perform t.as_user(inv);
-  perform t.throws(format($q$select public.correct_item_identifiers('corr-auth-000001', %L, %L::jsonb, 'inventory exec is not allowed')$q$, d1, jsonb_build_object('imei1', t.imei(2004))::text),
-                   '42501', 'inventory executive cannot correct identifiers');
-  perform t.as_user(owner_);
+  perform t.as_user(former);
+  perform t.throws(format($q$select public.correct_item_identifiers('corr-auth-000001', %L, %L::jsonb, 'former role holder is not allowed')$q$, d1, jsonb_build_object('imei1', t.imei(2004))::text),
+                   '42501', 'an account without a staff profile cannot correct identifiers, whatever role it used to have');
+  perform t.as_user(adm);
   perform t.throws(format($q$select public.correct_item_identifiers('corr-reason-0001', %L, %L::jsonb, 'typo')$q$, d1, jsonb_build_object('imei1', t.imei(2004))::text), 'TM003', 'a short reason is rejected');
   perform t.throws(format($q$select public.correct_item_identifiers('corr-nochange-01', %L, %L::jsonb, 'identical values supplied')$q$, d1, jsonb_build_object('imei1', t.imei(2001))::text), 'identical', 'a no-op correction is rejected');
   perform t.throws(format($q$select public.correct_item_identifiers('corr-empty-00001', %L, '{}', 'nothing to change here')$q$, d1), 'identical', 'an empty change set is rejected');
@@ -45,33 +46,34 @@ begin
   perform t.eq((select count(*) from public.idempotency_keys where idem_key like 'corr-dup-%'), 0::bigint, 'rejected corrections stored no idempotency keys');
 
   -- ===== a valid correction (owner)
-  perform t.as_user(owner_);
+  perform t.as_user(adm);
   r := public.correct_item_identifiers('corr-good-000001', d1, jsonb_build_object('imei1', t.imei(2004)), 'Typo at goods receipt: digits transposed');
   perform t.ok((public.correct_item_identifiers('corr-good-000001', d1, jsonb_build_object('imei1', t.imei(2004)), 'Typo at goods receipt: digits transposed') ->> 'replayed')::boolean,
                'repeating the same correction request is idempotent');
   perform t.reset();
   perform t.eq((select imei1 from public.inventory_items where id = d1), t.imei(2004), 'the device now carries the corrected IMEI');
   select * into c from public.inventory_identifier_corrections where inventory_item_id = d1;
-  perform t.ok(c.old_imei1 = t.imei(2001) and c.new_imei1 = t.imei(2004) and c.corrected_by = owner_ and c.reason like 'Typo at goods receipt%',
+  perform t.ok(c.old_imei1 = t.imei(2001) and c.new_imei1 = t.imei(2004) and c.corrected_by = adm and c.reason like 'Typo at goods receipt%',
                'correction record keeps old value, new value, actor and reason');
   perform t.eq((select count(*) from public.inventory_identifier_corrections where inventory_item_id = d1), 1::bigint, 'replay did not add a second correction');
   perform t.ok((select count(*) = 2 and count(*) filter (where retired_at is null) = 1 from public.inventory_identifiers where inventory_item_id = d1),
                'identifier history keeps both values, only the new one is active');
-  perform t.ok((select retired_by = owner_ and value = t.imei(2001) from public.inventory_identifiers where inventory_item_id = d1 and retired_at is not null),
+  perform t.ok((select retired_by = adm and value = t.imei(2001) from public.inventory_identifiers where inventory_item_id = d1 and retired_at is not null),
                'the retired value records who retired it');
-  perform t.ok(exists (select 1 from public.audit_logs where action = 'identifier.corrected' and record_id = d1::text and actor_id = owner_ and actor_role = 'owner'
+  perform t.ok(exists (select 1 from public.audit_logs where action = 'identifier.corrected' and record_id = d1::text and actor_id = adm and actor_role = 'admin'
                         and detail ->> 'correction_id' = c.id::text), 'correction is in the audit log');
   perform t.ok(exists (select 1 from public.audit_logs where table_name = 'inventory_items' and record_id = d1::text and action = 'update'
                         and old_data ->> 'imei1' = t.imei(2001) and new_data ->> 'imei1' = t.imei(2004)), 'row-level audit shows before and after');
 
   -- ===== a retired value can legitimately be used by another device; active values stay protected
-  perform t.as_user(inv);
+  perform t.as_user(stf);
   insert into public.purchases (supplier_id, supplier_invoice_no) values (t.fx('supplier'), 'INV-7002') returning id into pur;
   insert into public.purchase_items (purchase_id, variant_id, quantity, unit_cost) values (pur, v1, 2, 50000) returning id into pi;
   perform t.lives(format($q$select public.receive_purchase('corr-reuse-00001', %L, %L::jsonb)$q$, pur,
        jsonb_build_array(jsonb_build_object('purchase_item_id', pi, 'imei1', t.imei(2001)), jsonb_build_object('purchase_item_id', pi, 'imei1', t.imei(2005)))::text),
        'a corrected-away IMEI can be received on another device');
-  perform t.throws(format($q$select public.correct_item_identifiers('corr-back-000001', %L, %L::jsonb, 'revert to the value another device now holds')$q$, d1, jsonb_build_object('imei1', t.imei(2001))::text) , '42501', 'inventory exec cannot (authority check first)');
+  perform t.as_user(former);
+  perform t.throws(format($q$select public.correct_item_identifiers('corr-back-000001', %L, %L::jsonb, 'revert to the value another device now holds')$q$, d1, jsonb_build_object('imei1', t.imei(2001))::text) , '42501', 'a former role holder cannot (authority check first)');
   perform t.as_user(mgr);
   perform t.throws(format($q$select public.correct_item_identifiers('corr-back-000002', %L, %L::jsonb, 'revert to the value another device now holds')$q$, d1, jsonb_build_object('imei1', t.imei(2001))::text), '23505', 'but the value is protected again once another device holds it');
 
@@ -90,7 +92,7 @@ begin
   -- ===== sold devices can be corrected; invoices keep what was issued
   perform t.reset();
   perform t.ok((select imei1 = t.imei(1) from public.invoice_items where invoice_id = t.fx('invoice_by_sales')), 'before: invoice shows the original IMEI');
-  perform t.as_user(owner_);
+  perform t.as_user(adm);
   perform public.correct_item_identifiers('corr-sold-000001', t.fx('item_sold_1'), jsonb_build_object('imei2', t.imei(2201)), 'Second IMEI read from the box after sale');
   perform t.reset();
   perform t.ok((select imei1 = t.imei(1) and imei2 = t.imei(101) from public.invoice_items where invoice_id = t.fx('invoice_by_sales')), 'after: the issued invoice is unchanged (immutable snapshot)');
