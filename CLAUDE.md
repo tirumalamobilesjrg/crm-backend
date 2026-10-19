@@ -4,7 +4,7 @@ Database foundation for Tirumala Mobiles on Supabase/PostgreSQL. **This repo own
 No application server: clients (the `crm-frontend` CRM, later the `public-website`) call Supabase's REST API and database functions.
 
 ## Layout
-`supabase/migrations/` (applied in filename order, 0001..0026) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
+`supabase/migrations/` (applied in filename order, 0001..0027) · `tests/db/*.test.sql` + `concurrency.sh` · `tests/upgrade/role_migration.sh` ·
 `scripts/test-db.sh` (run all DB tests) · `scripts/backup*.sh`, `restore-check.sh` · `docs/` (ARCHITECTURE, SECURITY, API_CONTRACTS, SCHEMA_DECISIONS, ROLE_MIGRATION, TESTING, OPERATIONS).
 
 ## Non-negotiable rules
@@ -19,11 +19,11 @@ No application server: clients (the `crm-frontend` CRM, later the `public-websit
 ## Decided business rules
 Two roles only (Admin, Manager; removed roles cannot be assigned — migration 0019, remediation in docs/ROLE_MIGRATION.md). Serialized phones + quantity accessories,
 append-only stock ledger, gapless invoice numbers, **no GST/tax**, **exactly one manual payment per sale equal to the total**, discounts via Admin-managed
-`discount_policies` (Manager has no allowance until configured) and single-use Admin approvals, audited IMEI corrections with history, explicit approved `public_price`, a sale line's unit price may not exceed the variant's MRP (migration 0020, `TM003`), a unit price below the selling price is restated as a discount (migration 0023: typing a low price never bypasses the discount rules), a discount approval is tied to ONE phone or accessory product (migration 0025: the Admin names the item; it covers the discount on that item only), **prices (MRP, selling price, website price) are set and changed only by an Admin** (migration 0024; Managers can still publish, edit products and receive stock), the IMEI/serial of a SOLD phone is corrected only by an Admin (0024), product photos live in the public `product-images` Storage bucket writable only by active staff (migration 0021), and brand logos in the public `brand-logos` bucket (SVG/PNG/WebP, 256 KiB, staff-only writes, `brands.logo_path`, migration 0026; not exposed through any public view).
+`discount_policies` (Manager has no allowance until configured) and single-use Admin approvals, audited IMEI corrections with history, explicit approved `public_price`, a sale line's unit price may not exceed the variant's MRP (migration 0020, `TM003`), a unit price below the selling price is restated as a discount (migration 0023: typing a low price never bypasses the discount rules), a discount approval is tied to ONE phone or accessory product (migration 0025: the Admin names the item; it covers the discount on that item only), **prices (MRP, selling price, website price) are set and changed only by an Admin** (migration 0024; Managers can still publish, edit products and receive stock), the IMEI/serial of a SOLD phone is corrected only by an Admin (0024), product photos live in the public `product-images` Storage bucket writable only by active staff (migration 0021), and brand logos in the public `brand-logos` bucket (SVG/PNG/WebP, 256 KiB, staff-only writes, `brands.logo_path`, migration 0026; not exposed as a raw column), category pictures in the public `category-images` bucket (JPEG/PNG/WebP, 1 MiB, staff-only writes, `categories.image_path`, migration 0027), and `public_catalogue_products` carries `brand_logo_path` and `category_image_path` (object names only) so the website can show brand logos and category pictures.
 
 ## Commands
 `scripts/test-db.sh` (needs PostgreSQL 16/17 + `psql`; PG* env vars; use Git Bash/WSL on Windows) · `tests/upgrade/role_migration.sh` · `shellcheck scripts/*.sh tests/db/concurrency.sh tests/upgrade/role_migration.sh`.
-Last recorded: 860 assertions pass, role migration 29 checks pass, CI green on GitHub (PostgreSQL 16 and 17, backup drill, shellcheck).
+Last recorded: 881 assertions pass, role migration 29 checks pass, CI green on GitHub (PostgreSQL 16 and 17, backup drill, shellcheck).
 Apply to hosted project (manual, owner only): `supabase link`, `supabase db push --dry-run`, then `supabase db push`. Take a backup first.
 
 ## Known gaps / ideas

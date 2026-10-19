@@ -58,5 +58,5 @@ begin
   -- the website sees no logo column
   perform t.as_anon();
   perform t.ok(not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name like 'public\_%' and column_name = 'logo_path'),
-               'no public view exposes logo_path');
+               'no public view exposes the raw logo_path column (0027 adds only the brand_logo_path alias)');
 end $$;

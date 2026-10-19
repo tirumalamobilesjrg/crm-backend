@@ -183,7 +183,7 @@ Bucket settings themselves cannot be changed from the API. Image files are **not
 
 | View | Columns |
 |---|---|
-| `public_catalogue_products` | id, slug, name, brand_name, brand_slug, category_name, category_slug, description, published_at, updated_at, availability |
+| `public_catalogue_products` | id, slug, name, brand_name, brand_slug, category_name, category_slug, description, published_at, updated_at, availability, brand_logo_path, category_image_path |
 | `public_catalogue_variants` | id, product_slug, color, ram_gb, storage_gb, public_price, availability |
 | `public_catalogue_images` | id, product_slug, storage_path, alt_text, sort_order, is_primary |
 | `public_catalogue_specifications` | id, product_slug, group_name, spec_key, spec_value, sort_order |
