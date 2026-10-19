@@ -36,8 +36,8 @@ begin;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"$2","role":"authenticated"}', true);
 select public.finalize_sale('$3', null,
-  '[{"inventory_item_id":"$4","unit_price":60000}]'::jsonb,
-  '{"method":"cash","amount":60000}'::jsonb)::text;
+  '[{"inventory_item_id":"$4","unit_price":70000}]'::jsonb,
+  '{"method":"cash","amount":70000}'::jsonb)::text;
 select pg_sleep($5);
 commit;
 SQL
@@ -86,7 +86,7 @@ cat <<SQL | "${PSQL[@]}" > /dev/null 2>&1 || true
 begin;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"$SALES","role":"authenticated"}', true);
-select public.finalize_sale('conc-d-key-0001', null, '[{"inventory_item_id":"$I5","unit_price":60000}]'::jsonb, '{"method":"cash","amount":60000}'::jsonb);
+select public.finalize_sale('conc-d-key-0001', null, '[{"inventory_item_id":"$I5","unit_price":70000}]'::jsonb, '{"method":"cash","amount":70000}'::jsonb);
 rollback;
 SQL
 SEQ_AFTER=$("${PSQL[@]}" -c "select last_number from public.invoice_sequences order by fiscal_year desc limit 1")
@@ -112,7 +112,7 @@ VC=$("${PSQL[@]}" -c "select t.fx('v_case')")
 # E: two sellers each ask for most of an accessory SKU's stock at once; only one may get it.
 ONHAND=$("${PSQL[@]}" -c "select on_hand from public.stock_levels where variant_id = '$VC'")
 QTY=$((ONHAND - 1))
-SALE_QTY="select public.finalize_sale('KEY', null, '[{\"variant_id\":\"$VC\",\"quantity\":$QTY,\"unit_price\":100}]'::jsonb, '{\"method\":\"cash\",\"amount\":$((QTY * 100))}'::jsonb)::text;"
+SALE_QTY="select public.finalize_sale('KEY', null, '[{\"variant_id\":\"$VC\",\"quantity\":$QTY,\"unit_price\":799}]'::jsonb, '{\"method\":\"cash\",\"amount\":$((QTY * 799))}'::jsonb)::text;"
 as_user_sql "$WORK/e1" $SALES 2 "${SALE_QTY/KEY/conc-e-key-0001}" &
 sleep 0.7
 as_user_sql "$WORK/e2" $MGR 0 "${SALE_QTY/KEY/conc-e-key-0002}"
@@ -133,7 +133,7 @@ commit;
 SQL
 )
 APPR=$(echo "$APPR" | grep -E '^[0-9a-f-]{36}$' | head -1)
-sale_with_approval() { echo "select public.finalize_sale('$1', null, '[{\"inventory_item_id\":\"$2\",\"unit_price\":10000,\"discount_amount\":1500}]'::jsonb, '{\"method\":\"cash\",\"amount\":8500}'::jsonb, null, 'Approval race', '$APPR')::text;"; }
+sale_with_approval() { echo "select public.finalize_sale('$1', null, '[{\"inventory_item_id\":\"$2\",\"unit_price\":70000,\"discount_amount\":1500}]'::jsonb, '{\"method\":\"cash\",\"amount\":68500}'::jsonb, null, 'Approval race', '$APPR')::text;"; }
 as_user_sql "$WORK/f1" $SALES 2 "$(sale_with_approval conc-f-key-0001 "$I6")" &
 sleep 0.7
 as_user_sql "$WORK/f2" $SALES 0 "$(sale_with_approval conc-f-key-0002 "$I5")"   # different device: only the approval is contested

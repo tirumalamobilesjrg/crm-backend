@@ -62,8 +62,8 @@ begin
   select array_agg(id) into ids from public.inventory_items where variant_id = v1 and status = 'in_stock';
   perform t.as_user(mgr);
   r := public.finalize_sale('pub-sellout-key1', null,
-         (select jsonb_agg(jsonb_build_object('inventory_item_id', i, 'unit_price', 60000)) from unnest(ids) i),
-         jsonb_build_object('method', 'cash', 'amount', 60000 * coalesce(array_length(ids, 1), 0)));
+         (select jsonb_agg(jsonb_build_object('inventory_item_id', i, 'unit_price', 70000)) from unnest(ids) i),
+         jsonb_build_object('method', 'cash', 'amount', 70000 * coalesce(array_length(ids, 1), 0)));
   perform t.as_anon();
   perform t.eq((select availability from public.public_catalogue_products), 'out_of_stock', 'selling the last device flips availability to out_of_stock');
   perform t.eq((select availability from public.public_catalogue_variants), 'out_of_stock', 'variant availability flips too');

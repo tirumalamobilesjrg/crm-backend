@@ -57,20 +57,20 @@ begin
   select last_number into seq_before from public.invoice_sequences where fiscal_year = fy;
   perform t.as_user(sales);
   perform t.throws(format($q$select public.finalize_sale('pos-mismatch-01', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 60000))::text,
-      jsonb_build_object('method', 'cash', 'amount', 59999)::text), 'TM006', 'underpayment is rejected');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000))::text,
+      jsonb_build_object('method', 'cash', 'amount', 69999)::text), 'TM006', 'underpayment is rejected');
   perform t.throws(format($q$select public.finalize_sale('pos-mismatch-02', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 60000))::text,
-      jsonb_build_object('method', 'cash', 'amount', 60001)::text), 'TM006', 'overpayment is rejected');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000))::text,
+      jsonb_build_object('method', 'cash', 'amount', 70001)::text), 'TM006', 'overpayment is rejected');
   perform t.throws(format($q$select public.finalize_sale('pos-badmethod-01', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 60000))::text,
-      jsonb_build_object('method', 'bitcoin', 'amount', 60000)::text), '22P02', 'unknown payment method is rejected');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000))::text,
+      jsonb_build_object('method', 'bitcoin', 'amount', 70000)::text), '22P02', 'unknown payment method is rejected');
   -- failure AFTER the earlier lines validated: a batch containing a sold device is rejected as a whole
   perform t.throws(format($q$select public.finalize_sale('pos-partial-0001', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 60000),
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000),
                         jsonb_build_object('variant_id', t.fx('v_case'), 'quantity', 1, 'unit_price', 799),
-                        jsonb_build_object('inventory_item_id', sold1, 'unit_price', 60000))::text,
-      jsonb_build_object('method', 'cash', 'amount', 121599)::text), 'TM004', 'a batch containing a sold device is rejected as a whole');
+                        jsonb_build_object('inventory_item_id', sold1, 'unit_price', 70000))::text,
+      jsonb_build_object('method', 'cash', 'amount', 140799)::text), 'TM004', 'a batch containing a sold device is rejected as a whole');
   perform t.reset();
   perform t.eq((select count(*) from public.sales), n_sales, 'failed sales created no sale rows');
   perform t.eq((select count(*) from public.stock_movements), n_mv, 'failed sales created no stock movements');
@@ -93,7 +93,7 @@ begin
   perform t.throws(format($q$select public.finalize_sale('pos-validate-05', null, %L::jsonb, %L::jsonb)$q$,
       jsonb_build_array(jsonb_build_object('inventory_item_id', gen_random_uuid(), 'unit_price', 1000))::text, '{"method":"cash","amount":1000}'), 'unknown device', 'an unknown device is rejected');
   perform t.throws(format($q$select public.finalize_sale('pos-validate-06', gen_random_uuid(), %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 1000))::text, '{"method":"cash","amount":1000}'), 'customer does not exist', 'an unknown customer is rejected');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra1, 'unit_price', 70000))::text, '{"method":"cash","amount":70000}'), 'customer does not exist', 'an unknown customer is rejected');
   perform t.throws(format($q$select public.finalize_sale('pos-validate-07', null, %L::jsonb, %L::jsonb)$q$,
       jsonb_build_array(jsonb_build_object('inventory_item_id', hidden, 'unit_price', 1000))::text, '{"method":"cash","amount":1000}'), 'not available', 'a damaged device cannot be sold');
   perform t.throws(format($q$select public.finalize_sale('pos-validate-08', null, %L::jsonb, %L::jsonb)$q$,
@@ -121,9 +121,9 @@ begin
   -- ===== idempotency
   perform t.as_user(sales);
   r := public.finalize_sale('pos-idem-key-01', null,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 65000)), '{"method":"cash","amount":65000}');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 70000)), '{"method":"cash","amount":70000}');
   r2 := public.finalize_sale('pos-idem-key-01', null,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 65000)), '{"method":"cash","amount":65000}');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 70000)), '{"method":"cash","amount":70000}');
   perform t.ok((r2 ->> 'replayed')::boolean and r2 ->> 'sale_id' = r ->> 'sale_id' and r2 ->> 'invoice_number' = r ->> 'invoice_number',
                'a repeated submission returns the original sale and invoice');
   perform t.reset();
@@ -132,14 +132,14 @@ begin
   perform t.eq((select count(*) from public.payments where sale_id = (r ->> 'sale_id')::uuid), 1::bigint, 'duplicate submission recorded the payment once');
   perform t.as_user(sales);
   perform t.throws(format($q$select public.finalize_sale('pos-idem-key-01', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra4, 'unit_price', 65000))::text, '{"method":"cash","amount":65000}'),
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra4, 'unit_price', 70000))::text, '{"method":"cash","amount":70000}'),
       'TM002', 'the same key with a different cart is refused, not silently replayed');
   perform t.throws(format($q$select public.finalize_sale('pos-idem-key-01', null, %L::jsonb, %L::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 65000))::text, '{"method":"upi","amount":65000}'),
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra3, 'unit_price', 70000))::text, '{"method":"upi","amount":70000}'),
       'TM002', 'the same key with a different payment method is refused');
   perform t.as_user(mgr);
   r2 := public.finalize_sale('pos-idem-key-01', null,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', extra4, 'unit_price', 65000)), '{"method":"cash","amount":65000}');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', extra4, 'unit_price', 70000)), '{"method":"cash","amount":70000}');
   perform t.ok(not (r2 ->> 'replayed')::boolean and r2 ->> 'sale_id' <> r ->> 'sale_id', 'idempotency keys are scoped per user');
 
   -- ===== invoice numbers stayed consecutive across all of the above

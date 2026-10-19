@@ -78,7 +78,7 @@ begin
       jsonb_build_array(jsonb_build_object('variant_id', vc, 'quantity', 2, 'unit_price', 999)), '{"method":"upi","amount":1998}');
   perform t.ok(r ->> 'invoice_number' is not null, 'an accessory sold exactly at its MRP is accepted');
   r := public.finalize_sale('mrp-ok-000003', null,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', d2, 'unit_price', 65000)), '{"method":"cash","amount":65000}');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', d2, 'unit_price', 70000)), '{"method":"cash","amount":70000}');
   perform t.ok(r ->> 'invoice_number' is not null, 'a price below the MRP is accepted');
 
   -- ===== a failed attempt stores nothing, so the same key can be reused with a corrected price
@@ -92,7 +92,7 @@ begin
   perform t.throws(format($q$select public.finalize_sale('mrp-zero-0001', null, %L::jsonb, '{"method":"cash","amount":1}'::jsonb)$q$,
       jsonb_build_array(jsonb_build_object('inventory_item_id', d4, 'unit_price', 0))::text), 'TM003', 'a zero price is still rejected');
   perform t.throws(format($q$select public.finalize_sale('mrp-pay-00001', null, %L::jsonb, '{"method":"cash","amount":1000}'::jsonb)$q$,
-      jsonb_build_array(jsonb_build_object('inventory_item_id', d4, 'unit_price', 60000))::text), 'TM006', 'payment mismatch still raises TM006');
+      jsonb_build_array(jsonb_build_object('inventory_item_id', d4, 'unit_price', 70000))::text), 'TM006', 'payment mismatch still raises TM006');
   perform t.reset();
   perform t.ok(not has_function_privilege('anon', 'public.finalize_sale(text,uuid,jsonb,jsonb,text,text,uuid)', 'execute')
                and has_function_privilege('authenticated', 'public.finalize_sale(text,uuid,jsonb,jsonb,text,text,uuid)', 'execute'),

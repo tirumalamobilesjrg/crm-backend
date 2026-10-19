@@ -72,7 +72,9 @@ read at sale time). A price above it is rejected with `TM003` and a message of t
 `line 2: unit price 72000.01 is above the MRP 72000.00 for SKU NOVA-X1-8-128-BLK`; the whole request fails and
 nothing is written (no sale, movement, audit row or invoice number is consumed, and the idempotency key may be
 reused with a corrected price). The check is on the per-unit price *before* discount, so a discount cannot be used to
-offset an over-MRP price. A price equal to the MRP is accepted, and there is no minimum other than `> 0`.
+offset an over-MRP price. A price equal to the MRP is accepted.
+
+**A price below the variant's selling price is a discount (migration 0023).** `app.sale_lines` restates such a line as `unit_price = selling_price` with the shortfall added to the line discount, so a reason, the role's allowance or an Admin approval is required, and the invoice shows the catalogue price plus the discount. Typing a low price is therefore never a way around the discount rules. A price above the selling price (up to the MRP) is not a discount. The payment must still equal the total the client computed from its own unit price and discount (the total is unchanged by the restatement).
 Applies to Admin and Manager alike; past sales are not re-checked. A client should still validate against the MRP
 it shows to the user, since the database is the final check.
 

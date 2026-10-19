@@ -19,6 +19,8 @@ begin
     (select jsonb_agg(jsonb_build_object('purchase_item_id', pi, 'imei1', t.imei(1000 + g))) from generate_series(1, 14) g));
   perform t.reset();
   select array_agg(id order by imei1) into d from public.inventory_items where imei1 between t.imei(1001) and t.imei(1014);
+  -- 0023: a price below the selling price is itself a discount, so these scenarios (written with a 10,000 price) run on a 10,000 selling price
+  update public.product_variants set selling_price = 10000 where id = v1;
 
   -- policy rows are data
   perform t.eq((select max_percent from public.discount_policies where role = 'manager'), 10.00, 'Manager limit is a row in discount_policies (set by the Admin in the fixtures)');
@@ -213,3 +215,6 @@ begin
                'approval id is present exactly when the basis is manager_approval');
   perform t.eq((select count(*) from public.sales where discount_total > 0 and discount_basis = 'legacy_unrecorded'), 0::bigint, 'no legacy_unrecorded sale exists in a database built from scratch');
 end $$;
+
+-- restore the fixture price for the files that follow
+update public.product_variants set selling_price = 70000 where id = t.fx('v_published');

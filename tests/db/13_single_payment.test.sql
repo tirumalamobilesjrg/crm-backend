@@ -12,25 +12,25 @@ begin
   perform public.receive_purchase('pay-stock-recv-1', pur, jsonb_build_array(jsonb_build_object('purchase_item_id', pi, 'imei1', t.imei(4001))));
   perform t.reset();
   select id into item from public.inventory_items where imei1 = t.imei(4001);
-  items := jsonb_build_array(jsonb_build_object('inventory_item_id', item, 'unit_price', 50000));
+  items := jsonb_build_array(jsonb_build_object('inventory_item_id', item, 'unit_price', 70000));
 
   perform t.as_user(sales);
   perform t.throws(format($q$select public.finalize_sale('pay-split-000001', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '[{"method":"cash","amount":20000},{"method":"upi","amount":30000}]'), 'split payments are not supported', 'split payments (array) are rejected');
+       '[{"method":"cash","amount":30000},{"method":"upi","amount":40000}]'), 'split payments are not supported', 'split payments (array) are rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-extra-000001', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"method":"upi","amount":50000,"provider":"somegateway","verified":true}'), 'only method, amount and reference', 'gateway-style fields in a payment are rejected');
+       '{"method":"upi","amount":70000,"provider":"somegateway","verified":true}'), 'only method, amount and reference', 'gateway-style fields in a payment are rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-part-0000001', null, %L::jsonb, %L::jsonb)$q$, items::text,
        '{"method":"cash","amount":40000}'), 'TM006', 'part payment / credit sale is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-over-0000001', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"method":"cash","amount":50000.01}'), 'TM006', 'overpayment is rejected');
+       '{"method":"cash","amount":70000.01}'), 'TM006', 'overpayment is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-nomethod-01', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"amount":50000}'), 'payment method is required', 'a missing method is rejected');
+       '{"amount":70000}'), 'payment method is required', 'a missing method is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-noamount-01', null, %L::jsonb, %L::jsonb)$q$, items::text,
        '{"method":"cash"}'), 'TM003', 'a missing amount is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-negative-01', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"method":"cash","amount":-50000}'), 'TM003', 'a negative amount is rejected');
+       '{"method":"cash","amount":-70000}'), 'TM003', 'a negative amount is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-decimal-001', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"method":"cash","amount":50000.001}'), 'TM003', 'more than two decimals is rejected');
+       '{"method":"cash","amount":70000.001}'), 'TM003', 'more than two decimals is rejected');
   perform t.throws(format($q$select public.finalize_sale('pay-string-0001', null, %L::jsonb, %L::jsonb)$q$, items::text,
        '"cash"'), 'one JSON object', 'a non-object payment is rejected');
   perform t.reset();
@@ -39,7 +39,7 @@ begin
   -- every payment method is a manual record
   perform t.as_user(sales);
   perform t.lives(format($q$select public.finalize_sale('pay-card-0000001', null, %L::jsonb, %L::jsonb)$q$, items::text,
-       '{"method":"card","amount":50000,"reference":"POS terminal slip 0042"}'), 'a card payment can be recorded as a manual entry (no processing happens)');
+       '{"method":"card","amount":70000,"reference":"POS terminal slip 0042"}'), 'a card payment can be recorded as a manual entry (no processing happens)');
   perform t.reset();
   perform t.ok((select method = 'card' and reference = 'POS terminal slip 0042' and entry_source = 'manual' and received_by = sales
                   from public.payments order by received_at desc, id limit 1), 'the payment stores method, free-text reference, manual source and the recording user');
