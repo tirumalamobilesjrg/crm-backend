@@ -41,10 +41,13 @@ begin
     values (brand, cat, 'Nova X1', 'nova-x1', 'Published test phone') returning id into p1;
   insert into public.products (brand_id, category_id, name, slug, description)
     values (brand, cat, 'Hidden Y2', 'hidden-y2', 'Never published') returning id into p2;
+  -- 0024: prices are set by an Admin
+  perform t.as_user(adm);
   insert into public.product_variants (product_id, sku, color, ram_gb, storage_gb, mrp, selling_price)
     values (p1, 'NOVA-X1-8-128-BLK', 'Black', 8, 128, 72000, 70000) returning id into v1;
   insert into public.product_variants (product_id, sku, color, ram_gb, storage_gb, mrp, selling_price)
     values (p2, 'HID-Y2-4-64-BLU', 'Blue', 4, 64, 25000, 24000) returning id into v2;
+  perform t.as_user(mgr);
   insert into public.product_specifications (product_id, spec_key, spec_value) values (p1, 'Display', '6.5 inch AMOLED');
   insert into public.product_images (product_id, storage_path, alt_text, is_primary)
     values (p1, 'products/nova-x1/front.webp', 'Nova X1 front', true);
@@ -61,8 +64,10 @@ begin
   -- an accessory: quantity-tracked SKU, 50 pieces received without any unit list
   insert into public.products (brand_id, category_id, name, slug, description)
     values (brand, cat, 'Nova Case', 'nova-case', 'Accessory, unpublished at first') returning id into p3;
+  perform t.as_user(adm);
   insert into public.product_variants (product_id, sku, color, mrp, selling_price, tracking_mode)
     values (p3, 'NOVA-CASE-BLK', 'Black', 999, 799, 'quantity') returning id into v3;
+  perform t.as_user(mgr);
   insert into public.purchases (supplier_id, supplier_invoice_no) values (sup, 'INV-1002') returning id into pur2;
   insert into public.purchase_items (purchase_id, variant_id, quantity, unit_cost) values (pur2, v3, 50, 300) returning id into pi3;
 
@@ -76,9 +81,11 @@ begin
   r := public.receive_purchase('fixture-receive-2', pur2, '[]');
   perform t.eq((r ->> 'quantity_units_received')::int, 50, 'receive_purchase adds the ordered quantity of an accessory SKU');
 
-  -- a Manager publishes and sets the approved public price
+  -- a Manager publishes; the Admin sets the approved public price (0024)
   update public.products set is_published = true where id = p1;
+  perform t.as_user(adm);
   update public.product_variants set public_price = 69999 where id = v1;
+  perform t.as_user(mgr);
 
   -- ===== default discount policy: a Manager has NO allowance of their own until an Admin configures one
   perform t.reset();

@@ -53,7 +53,8 @@ begin
   perform t.lives($q$insert into public.brands (name, slug) values ('Mgr Brand', 'mgr-brand')$q$, 'manager can create brands');
   perform t.lives(format($q$update public.products set is_published = false where id = %L$q$, p1), 'manager can unpublish a product');
   perform t.lives(format($q$update public.products set is_published = true where id = %L$q$, p1), 'manager can publish a product');
-  perform t.lives(format($q$update public.product_variants set public_price = 69999 where id = %L$q$, v1), 'manager can set the public price');
+  perform t.throws(format($q$update public.product_variants set public_price = 12345 where id = %L$q$, v1), '42501', 'manager cannot set the public price (0024: prices are Admin-only)');
+  perform t.throws(format($q$insert into public.product_variants (product_id, sku, mrp, selling_price) values (%L, 'MGR-SKU', 100, 90)$q$, p1), '42501', 'manager cannot create a variant with prices (0024)');
   perform t.as_user(adm);
   perform t.lives($q$insert into public.brands (name, slug) values ('Admin Brand', 'admin-brand')$q$, 'admin can create brands');
 

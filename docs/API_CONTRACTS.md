@@ -196,3 +196,9 @@ There are no offer, discount, cost, margin, stock-count, IMEI, supplier or custo
 
 One row (the `shop_settings` singleton). An Admin edits these fields in the CRM Settings page; `map_url` must be an `https://` link. Empty fields are `NULL`
 and the website hides what is missing. `legal_name`, `invoice_prefix`, `currency` and every other `shop_settings` column are **not** exposed.
+
+## Who may change prices and sold-phone identifiers (migration 0024)
+
+- `product_variants.mrp`, `selling_price` and `public_price` can be inserted or changed only by an **Admin** (error `42501`, "only an Admin can set or change prices"). Managers can read them, publish/unpublish products, edit products and other variant fields, and receive stock into existing variants. Creating a variant needs prices, so it is an Admin action.
+- `rpc/correct_item_identifiers` on a phone whose status is `sold` is Admin-only (`42501`); in-stock phones can still be corrected by a Manager.
+- Indexes `invoices_issued_at_idx` and `invoices_customer_idx` back the sales list, reports and customer history.

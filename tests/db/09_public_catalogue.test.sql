@@ -78,24 +78,28 @@ begin
   perform t.reset();
 
   -- ===== explicitly approved public price
-  perform t.ok((select public_price_approved_by = mgr and public_price_approved_at is not null from public.product_variants where id = v1),
-               'the public price records the manager who approved it');
-  perform t.as_user(mgr);
+  perform t.ok((select public_price_approved_by = 'a0000000-0000-0000-0000-000000000001'::uuid and public_price_approved_at is not null from public.product_variants where id = v1),
+               'the public price records the Admin who approved it');
+  perform t.as_user('a0000000-0000-0000-0000-000000000001'::uuid);
   perform t.throws(format($q$update public.product_variants set public_price = 72001 where id = %L$q$, v1), '23514', 'a public price above the MRP is rejected');
-  perform t.lives(format($q$update public.product_variants set public_price = 68500 where id = %L$q$, v1), 'manager can change the public price');
-  perform t.as_user(inv);
+  perform t.lives(format($q$update public.product_variants set public_price = 68500 where id = %L$q$, v1), 'Admin can change the public price');
+  perform t.as_user(mgr);
+  perform t.throws(format($q$update public.product_variants set public_price = 1 where id = %L$q$, v1), '42501', 'a Manager cannot change the public price');
+  perform t.throws(format($q$update public.product_variants set selling_price = 1000 where id = %L$q$, v1), '42501', 'a Manager cannot change the selling price');
+  perform t.throws(format($q$update public.product_variants set mrp = 90000 where id = %L$q$, v1), '42501', 'a Manager cannot raise the MRP');
+  perform t.as_user('a0000000-0000-0000-0000-000000000001'::uuid);
   perform t.throws(format($q$update public.product_variants set mrp = 68000, selling_price = 60000 where id = %L$q$, v1), '23514', 'MRP cannot be lowered below the approved public price');
   perform t.as_user(mgr);
   perform t.as_anon();
   perform t.eq((select public_price::numeric from public.public_catalogue_variants), 68500::numeric, 'the website sees the approved public price, not selling_price (70000) or MRP (72000)');
-  perform t.as_user(mgr);
+  perform t.as_user('a0000000-0000-0000-0000-000000000001'::uuid);
   update public.product_variants set public_price = null where id = v1;
   perform t.reset();
   perform t.ok((select public_price is null and public_price_approved_by is null and public_price_approved_at is null from public.product_variants where id = v1),
                'withdrawing the price also clears its approval');
   perform t.as_anon();
   perform t.ok((select public_price is null from public.public_catalogue_variants), 'with no approved price the website shows none');
-  perform t.as_user(mgr);
+  perform t.as_user('a0000000-0000-0000-0000-000000000001'::uuid);
   update public.product_variants set public_price = 69999 where id = v1;
 
   -- ===== quantity SKU availability (accessory)
