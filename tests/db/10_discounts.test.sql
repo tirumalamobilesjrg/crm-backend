@@ -112,9 +112,9 @@ begin
        'TM005', '15 % by a Manager (limit 10 %) is rejected without an approval');
   perform t.throws(format('select public.grant_discount_approval(%L, %L, 2000, %L)', 'grant-mgr-00001', mgr2, 'a Manager cannot approve'), '42501', 'a Manager cannot grant an approval');
   perform t.as_user(adm);
-  a := public.grant_discount_approval('grant-appr-0001', mgr, 2000, 'Customer buying two phones', 30);
+  a := public.grant_discount_approval('grant-appr-0001', mgr, 2000, 'Customer buying two phones', 30, d[7]);
   appr_id := (a ->> 'approval_id')::uuid;
-  perform t.ok((public.grant_discount_approval('grant-appr-0001', mgr, 2000, 'Customer buying two phones', 30) ->> 'replayed')::boolean, 'granting is idempotent');
+  perform t.ok((public.grant_discount_approval('grant-appr-0001', mgr, 2000, 'Customer buying two phones', 30, d[7]) ->> 'replayed')::boolean, 'granting is idempotent');
   perform t.reset();
   perform t.eq((select count(*) from public.discount_approvals where requested_for = mgr and approved_by = adm and reason = 'Customer buying two phones'), 1::bigint, 'one approval row despite the replay');
   perform t.ok(exists (select 1 from public.audit_logs where action = 'discount.approval_granted' and actor_id = adm and actor_role = 'admin'), 'approval grant is audited');
@@ -149,7 +149,7 @@ begin
   -- an approval can exceed a Manager's own allowance even when that allowance is switched off entirely
   perform t.as_user(adm);
   update public.discount_policies set can_discount = false, max_percent = 0 where role = 'manager';
-  a := public.grant_discount_approval('grant-appr-0002', mgr, 1000, 'Manager has no own allowance', 30);
+  a := public.grant_discount_approval('grant-appr-0002', mgr, 1000, 'Manager has no own allowance', 30, d[8]);
   perform t.as_user(mgr);
   r := public.finalize_sale('disc-appr-key-07', null,
        jsonb_build_array(jsonb_build_object('inventory_item_id', d[8], 'unit_price', 10000, 'discount_amount', 500)),
@@ -159,7 +159,7 @@ begin
   update public.discount_policies set can_discount = true, max_percent = 10 where role = 'manager';
 
   -- approval beyond the approver's own authority, expiry, ineligible targets, caps
-  a := public.grant_discount_approval('grant-appr-0003', mgr, 5000, 'Big deal', 30);
+  a := public.grant_discount_approval('grant-appr-0003', mgr, 5000, 'Big deal', 30, d[9]);
   update public.discount_policies set max_percent = 20 where role = 'admin';
   perform t.as_user(mgr);
   perform t.throws(format($q$select public.finalize_sale('disc-appr-key-08', null, %L::jsonb, '{"method":"cash","amount":7500}'::jsonb, null, 'Beyond Admin authority', %L)$q$,
@@ -168,8 +168,8 @@ begin
   perform t.as_user(adm);
   update public.discount_policies set max_percent = 100 where role = 'admin';
   perform t.reset();
-  insert into public.discount_approvals (requested_for, approved_by, max_amount, reason, expires_at, created_at)
-    values (mgr, adm, 1000, 'Old approval', now() - interval '1 hour', now() - interval '2 hours') returning id into appr_id;
+  insert into public.discount_approvals (requested_for, approved_by, max_amount, reason, expires_at, created_at, inventory_item_id)
+    values (mgr, adm, 1000, 'Old approval', now() - interval '1 hour', now() - interval '2 hours', d[9]) returning id into appr_id;
   perform t.as_user(mgr);
   perform t.throws(format($q$select public.finalize_sale('disc-appr-key-09', null, %L::jsonb, '{"method":"cash","amount":9500}'::jsonb, null, 'Expired', %L)$q$,
        jsonb_build_array(jsonb_build_object('inventory_item_id', d[9], 'unit_price', 10000, 'discount_amount', 500))::text, appr_id),
@@ -188,8 +188,8 @@ begin
   insert into auth.users (id, email) values (adm2, 'second-admin@example.test');
   insert into public.staff_profiles (user_id, full_name, role) values (adm2, 'Second Admin', 'admin');
   perform t.as_user(adm2);
-  a := public.grant_discount_approval('grant-appr-0004', mgr, 1000, 'Will be demoted', 30);
-  a2 := public.grant_discount_approval('grant-appr-0005', mgr, 1000, 'Will be deactivated', 30);
+  a := public.grant_discount_approval('grant-appr-0004', mgr, 1000, 'Will be demoted', 30, d[9]);
+  a2 := public.grant_discount_approval('grant-appr-0005', mgr, 1000, 'Will be deactivated', 30, d[9]);
   perform t.as_user(adm);
   update public.staff_profiles set role = 'manager' where user_id = adm2;
   perform t.as_user(mgr);

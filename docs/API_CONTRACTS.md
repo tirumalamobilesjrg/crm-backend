@@ -115,9 +115,12 @@ Never drives stock below zero (`TM004`). Returns `{"adjustment_id","balance_afte
 ## `rpc/grant_discount_approval` — Admin only
 
 ```
-p_idempotency_key text, p_requested_for uuid, p_max_amount numeric (> 0, total discount cap for the sale),
-p_reason text (>= 3), p_valid_minutes int default 15 (1..120)
+p_idempotency_key text, p_requested_for uuid, p_max_amount numeric (> 0, cap on the discount of the approved item),
+p_reason text (>= 3), p_valid_minutes int default 15 (1..120),
+p_inventory_item_id uuid default null,   -- EXACTLY ONE of these two (migration 0025):
+p_variant_id uuid default null           --   a phone that is in stock, or an active accessory product
 ```
+**Item-bound (0025).** An approval is for the one phone or accessory product it names. `finalize_sale` accepts it only for a sale that contains that item (`TM005` "different item" otherwise), measures the approved amount against the discount on THAT item only, and requires any discount on other items in the cart to fit the seller's own allowance (`TM005` "other items"). Approvals granted before 0025 have no item and cannot be used. Single use, expiry, approver authority and auditing are unchanged.
 The caller must be an Admin whose policy has `can_approve` (a Manager is refused with `42501`, and the database
 forbids `can_approve` on the Manager policy). The target must be an active staff member (an Admin or a Manager) - it
 does **not** need its own discount allowance, which is exactly when approvals matter; self-approval is refused; the

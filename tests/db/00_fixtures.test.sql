@@ -122,7 +122,7 @@ begin
 
   -- a discount approval (Admin -> Manager B) and an identifier correction for the matrix tests
   perform t.as_user(adm);
-  perform public.grant_discount_approval('fixture-appr-1', mgr2, 5000, 'Loyal customer', 60);
+  perform public.grant_discount_approval('fixture-appr-1', mgr2, 5000, 'Loyal customer', 60, null, v3);
   perform public.correct_item_identifiers('fixture-corr-1', items[3], jsonb_build_object('imei2', t.imei(103)),
                                           'Second IMEI was missed at goods receipt');
 

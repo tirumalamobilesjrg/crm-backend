@@ -49,7 +49,7 @@ begin
   perform t.lives($q$update public.shop_settings set phone = '0000000000'$q$, 'Admin can change shop settings');
   perform t.lives($q$update public.discount_policies set max_amount = 5000 where role = 'manager'$q$, 'Admin can configure the Manager discount cap');
   perform t.lives($q$update public.discount_policies set max_amount = null where role = 'manager'$q$, '... and remove it again');
-  apid := (public.grant_discount_approval('two-role-key-02', mgr2, 1000, 'Admin approval smoke test', 5)->>'approval_id')::uuid;
+  apid := (public.grant_discount_approval('two-role-key-02', mgr2, 1000, 'Admin approval smoke test', 5, null, t.fx('v_case'))->>'approval_id')::uuid;
   perform t.ok(apid is not null, 'Admin can approve an exceptional discount');
   perform t.ok((select count(*) > 0 from public.audit_logs), 'Admin can read the audit log');
   perform t.throws($q$update public.staff_profiles set is_active = false, role = 'manager' where role = 'admin'$q$, 'last active Admin', 'the last active Admin cannot be demoted or deactivated');

@@ -124,16 +124,24 @@ record "the losing accessory sale is told stock is insufficient" "$(cat "$WORK/e
 record "accessory stock is never oversold or negative after the race" "$([[ "$AFTER" == 1 ]] && echo true || echo false)" "before=$ONHAND after=$AFTER"
 
 # F: one Admin-granted discount approval used by two sales at once; it can be consumed only once.
+# the approval is for the accessory product, so the two sales below contest the approval (not a device); give the SKU enough stock first
+"${PSQL[@]}" >/dev/null <<SQL
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"$OWNER","role":"authenticated"}', true);
+select public.adjust_quantity_stock('conc-f-restock-1', '$VC', 10, 'found', 'restock for the approval race');
+commit;
+SQL
 APPR=$("${PSQL[@]}" <<SQL
 begin;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"$OWNER","role":"authenticated"}', true);
-select (public.grant_discount_approval('conc-f-grant-01', '$SALES', 3000, 'Concurrency test approval', 30) ->> 'approval_id');
+select (public.grant_discount_approval('conc-f-grant-01', '$SALES', 3000, 'Concurrency test approval', 30, null, '$VC') ->> 'approval_id');
 commit;
 SQL
 )
 APPR=$(echo "$APPR" | grep -E '^[0-9a-f-]{36}$' | head -1)
-sale_with_approval() { echo "select public.finalize_sale('$1', null, '[{\"inventory_item_id\":\"$2\",\"unit_price\":70000,\"discount_amount\":1500}]'::jsonb, '{\"method\":\"cash\",\"amount\":68500}'::jsonb, null, 'Approval race', '$APPR')::text;"; }
+sale_with_approval() { echo "select public.finalize_sale('$1', null, '[{\"variant_id\":\"$VC\",\"quantity\":2,\"unit_price\":799,\"discount_amount\":500}]'::jsonb, '{\"method\":\"cash\",\"amount\":1098}'::jsonb, null, 'Approval race', '$APPR')::text;"; }
 as_user_sql "$WORK/f1" $SALES 2 "$(sale_with_approval conc-f-key-0001 "$I6")" &
 sleep 0.7
 as_user_sql "$WORK/f2" $SALES 0 "$(sale_with_approval conc-f-key-0002 "$I5")"   # different device: only the approval is contested
