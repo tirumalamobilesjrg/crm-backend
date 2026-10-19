@@ -1,10 +1,12 @@
-name: Encrypted backup (NOT ENABLED)
+name: Encrypted backup
 
-# Manual only, and a no-op unless the repository variable BACKUP_ENABLED is 'true'.
-# No schedule is configured on purpose: automated backups are not claimed to be operational
-# until the procedure in docs/OPERATIONS.md has been run end-to-end against the real project
-# and a restore drill from its output has passed.
+# Runs on days 1, 11 and 21 of every month at 21:00 UTC (02:30 IST), i.e. every 10 days (the 21st to the 1st is 9-11 days),
+# and on demand from the Actions tab. It does nothing until the repository variable BACKUP_ENABLED is 'true' and the
+# secret/variable below exist (see docs/OPERATIONS.md section 3). Pushing, scheduling and secrets are owner actions.
+# GitHub switches scheduled workflows off after 60 days without any repository activity; re-enable them in the Actions tab if that happens.
 on:
+  schedule:
+    - cron: '0 21 1,11,21 * *'
   workflow_dispatch:
 
 permissions:
@@ -23,8 +25,16 @@ jobs:
           BACKUP_AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
           BACKUP_DIR: ${{ runner.temp }}/backups
         run: scripts/backup.sh
+      - name: Verify the files before keeping them
+        run: |
+          cd "${{ runner.temp }}/backups"
+          sha256sum -c ./*.sha256
+          test "$(ls -1 ./*.dump.age | wc -l)" -ge 2
+          test -s ./*.counts
       - uses: actions/upload-artifact@v4
         with:
-          name: crm-encrypted-backup
+          name: crm-encrypted-backup-${{ github.run_id }}
           path: ${{ runner.temp }}/backups
-          retention-days: 30
+          # about nine generations at one every 10 days; GitHub's maximum is 90 days
+          retention-days: 90
+          if-no-files-found: error

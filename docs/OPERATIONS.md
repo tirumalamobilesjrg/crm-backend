@@ -44,16 +44,30 @@ Output: `crm-<ts>.dump.age` (schemas `public` + `app`, with grants/policies), `c
 (`auth.users`, `auth.identities`), `.counts` manifest, `.sha256`. Copy them to storage that is separate from the
 Supabase project (see ARCHITECTURE.md for free options). Keep several generations (e.g. daily for 7 days, weekly for 8 weeks).
 
-**Status:** the scripts work against a local PostgreSQL (tested, and in CI). They have **not** been run against the hosted
-Supabase project (the `auth` tables there have more columns/ownership differences), no schedule exists, and
-`.github/workflows/backup.yml` is manual and disabled until `BACKUP_ENABLED=true`. **Do not rely on backups being
-operational until the checklist below is done.**
+**Status:** the scripts work against a local PostgreSQL (tested, and in CI). `.github/workflows/backup.yml` is scheduled for
+every 10 days (days 1, 11 and 21 of each month, 21:00 UTC) and keeps each encrypted backup as a GitHub Actions artifact for 90 days
+(about nine generations). It stays inert until the owner does the one-time setup below. **Do not rely on backups being
+operational until the checklist is done.**
+
+One-time setup for the scheduled backup (owner; needs access to the GitHub repository settings and the Supabase dashboard):
+1. `age-keygen -o crm-backup-key.txt`; keep the file offline. Copy only the public key (`age1...`).
+2. GitHub repository -> Settings -> Secrets and variables -> Actions:
+   - Variable `BACKUP_AGE_RECIPIENT` = the public key.
+   - Secret `BACKUP_DATABASE_URL` = the **session pooler** connection string (Supabase -> Connect -> Session pooler, port 5432,
+     host `aws-0-<region>.pooler.supabase.com`, user `postgres.<ref>`). Do not use the direct `db.<ref>.supabase.co` host: it is
+     IPv6-only on the free plan and GitHub's runners cannot reach it.
+   - Variable `BACKUP_ENABLED` = `true`.
+3. Actions tab -> "Encrypted backup" -> Run workflow once, and download the artifact when it finishes.
+4. Run the restore drill (section 4) on that artifact with the private key. Only then tick the checklist.
+GitHub turns scheduled workflows off after 60 days with no repository activity; if the Actions tab says so, re-enable it.
+The files are encrypted. A GitHub artifact is stored apart from Supabase, which is what matters here, but it is
+not your own storage, so also copy one to your own drive every few months.
 
 Checklist to declare backups operational:
 - [ ] backup run against the real project succeeds
 - [ ] copy stored off-platform
 - [ ] restore drill (section 4) from that file passes
-- [ ] schedule configured and one scheduled run observed
+- [x] schedule configured in `backup.yml` (every 10 days); [ ] one scheduled run observed
 - [ ] owner confirms the private key is stored offline and can decrypt
 
 ## 4. Restore
